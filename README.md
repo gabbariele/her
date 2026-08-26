@@ -142,15 +142,18 @@ anche con `HER_PRESET` nel `.env`, così i lanciatori a doppio clic lo seguono.
 
 | | OpenAI | Gemini |
 |---|---|---|
-| Trascrizione | `gpt-4o-transcribe` | `gemini-2.5-flash-lite`, o `gemini-3.5-transcribe` (dedicato) |
-| Risposte | `gpt-4o`, `gpt-4o-mini` | `gemini-3.5-flash-lite`, `gemini-2.5-flash-lite` |
+| Trascrizione | `gpt-4o-transcribe` | `gemini-3.5-flash-lite`, o `gemini-3.5-transcribe` (dedicato) |
+| Risposte | `gpt-4o`, `gpt-4o-mini` | `gemini-3.5-flash-lite`, `gemini-3.5-flash` |
 
 Il preset `gemini` mette entrambe le gambe su Gemini: è la configurazione più
 economica e non richiede nessuna chiave OpenAI. Si possono anche mescolare
 (Gemini per l'ascolto, OpenAI per la testa): sono due sezioni indipendenti.
 
 I nomi dei modelli cambiano in fretta, quindi non fidarti di questa tabella:
-**`her models`** chiede al provider cosa offre davvero la tua chiave.
+**`her models`** chiede al provider cosa offre davvero la tua chiave. E quando
+Google ritira un modello, l'errore 404 dice quale usare al suo posto: `her`
+legge quel suggerimento, riprova con il modello nuovo e ti avvisa di aggiornare
+il preset, invece di perdere il turno in mezzo a una registrazione.
 
 Sui modelli Gemini recenti c'è anche `thinking:` (`off`, `low`, `medium`,
 `high`, `auto` o un numero di token). Per battute da tre frasi il ragionamento

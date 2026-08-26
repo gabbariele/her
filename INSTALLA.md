@@ -146,7 +146,7 @@ Chiavi API:
   OK  ElevenLabs   …c3d4
 
 Configurazione attiva:
-  STT   gemini/gemini-2.5-flash-lite (lingua: it)
+  STT   gemini/gemini-3.5-flash-lite (lingua: it)
   LLM   gemini/gemini-3.5-flash-lite, thinking: off
   TTS   elevenlabs/eleven_turbo_v2_5 voce: 21m00Tcm... (lingua: it)
   Audio 24000 Hz · attesa prima della risposta: 1.4s
@@ -312,7 +312,7 @@ sostituiti: se ne avevi modificato uno, lo ritrovi lì.
 | La voce ha l'accento straniero | La pronuncia la impone già `language: it`; l'accento dipende dalla voce: prendine una italiana dalla Voice Library (passo 5). |
 | *"Manca: gemini"*, *"Manca: openai"* o *"tts.voice_id"* | Chiavi non salvate: rileggi i passi 4 e 5. Attenzione agli spazi. |
 | *"trascrizione fallita: manca OPENAI_API_KEY"* | Stai usando un preset su OpenAI: metti `HER_PRESET=gemini` nel `.env`. |
-| *"Gemini LLM 404"* o *"modello non trovato"* | Quel modello non esiste più o la tua chiave non ce l'ha: `modelli.bat` mostra quelli veri. |
+| *"is no longer available"* / *"404"* su Gemini | Google ha ritirato quel modello. Il programma passa da solo a quello suggerito e te lo dice: per non rivedere l'avviso, apri il preset e scrivi il nome nuovo alla riga `model:`. `modelli.bat` elenca quelli disponibili. |
 | *"429"* / *"RESOURCE_EXHAUSTED"* su Gemini | Quota finita: attiva la fatturazione su Google AI Studio o passa a un modello `-lite`. |
 | L'ospite non risponde e leggi *"risposta vuota"* | Nel preset, sotto `llm:`, metti `thinking: off` o alza `max_output_tokens`. |
 | Non registra niente quando parli | Permesso microfono negato, o microfono sbagliato: `.venv\Scripts\her.exe devices` mostra quali ci sono. |

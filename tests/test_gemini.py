@@ -164,3 +164,75 @@ def test_stt_silence_returns_empty_string():
     with _client(lambda r: httpx.Response(200, json=_text_chunk("  "))) as http:
         assert transcribe(np.ones(100, dtype=np.int16), 24000,
                           SttConfig(provider="gemini"), client=http) == ""
+
+
+# -- modelli ritirati da Google ---------------------------------------------
+RITIRATO = {
+    "error": {
+        "code": 404,
+        "message": (
+            "This model models/gemini-2.5-flash-lite is no longer available to new users. "
+            "Please update your code to use models/gemini-3.5-flash-lite for the latest "
+            "features and improvements."
+        ),
+        "status": "NOT_FOUND",
+    }
+}
+
+
+def test_suggested_model_is_read_from_the_error():
+    body = json.dumps(RITIRATO)
+    assert _gemini.suggested_model(body, "gemini-2.5-flash-lite") == "gemini-3.5-flash-lite"
+    # un errore qualsiasi non deve far cambiare modello
+    assert _gemini.suggested_model('{"error": {"message": "quota esaurita"}}', "x") is None
+
+
+def test_stt_follows_googles_advice_when_a_model_is_retired():
+    chiamate, avvisi = [], []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        chiamate.append(str(request.url))
+        if "gemini-2.5-flash-lite" in str(request.url):
+            return httpx.Response(404, json=RITIRATO)
+        return httpx.Response(200, json=_text_chunk("ci siamo"))
+
+    cfg = SttConfig(provider="gemini", model="gemini-2.5-flash-lite")
+    with _client(handler) as http:
+        text = transcribe(np.ones(100, dtype=np.int16), 24000, cfg,
+                          client=http, notice=avvisi.append)
+
+    assert text == "ci siamo"                       # il turno non è andato perso
+    assert len(chiamate) == 2
+    assert "gemini-3.5-flash-lite" in chiamate[1]
+    assert "gemini-3.5-flash-lite" in avvisi[0] and "preset" in avvisi[0]
+
+
+def test_llm_follows_googles_advice_too():
+    avvisi = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "gemini-2.5-flash-lite" in str(request.url):
+            return httpx.Response(404, json=RITIRATO)
+        return httpx.Response(200, content=_sse(_text_chunk("eccomi")))
+
+    cfg = LlmConfig(provider="gemini", model="gemini-2.5-flash-lite")
+    with _client(handler) as http:
+        out = "".join(stream_reply("s", [{"role": "user", "content": "x"}], cfg,
+                                   client=http, notice=avvisi.append))
+    assert out == "eccomi"
+    assert avvisi and "gemini-3.5-flash-lite" in avvisi[0]
+
+
+def test_a_model_is_never_tried_twice():
+    """Se il sostituto dà lo stesso errore non si va in cerchio."""
+    chiamate = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        chiamate.append(str(request.url))
+        return httpx.Response(404, json=RITIRATO)
+
+    cfg = SttConfig(provider="gemini", model="gemini-2.5-flash-lite")
+    with _client(handler) as http:
+        with pytest.raises(SttError, match="404"):
+            transcribe(np.ones(100, dtype=np.int16), 24000, cfg, client=http)
+    assert len(chiamate) == 2

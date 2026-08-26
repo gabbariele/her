@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 from contextlib import contextmanager
+from typing import Callable
 
 import httpx
 import numpy as np
@@ -13,6 +14,9 @@ from . import _gemini
 
 OPENAI_URL = "https://api.openai.com/v1/audio/transcriptions"
 
+#: quante volte al massimo si riprova cambiando modello o togliendo il thinking
+_MAX_ATTEMPTS = 4
+
 _PROMPT = (
     "Trascrivi letteralmente questo audio, parola per parola. "
     "Rispondi soltanto con la trascrizione: niente commenti, niente virgolette, "
@@ -22,6 +26,11 @@ _PROMPT = (
 
 class SttError(RuntimeError):
     pass
+
+
+def _notify(notice: Callable[[str], None] | None, message: str) -> None:
+    if notice is not None:
+        notice(message)
 
 
 @contextmanager
@@ -42,6 +51,7 @@ def transcribe(
     cfg: SttConfig,
     timeout: float = 60.0,
     client: httpx.Client | None = None,
+    notice: Callable[[str], None] | None = None,
 ) -> str:
     if samples.size == 0:
         return ""
@@ -49,7 +59,7 @@ def transcribe(
     if cfg.provider == "openai":
         return _openai(audio, cfg, timeout, client)
     if cfg.provider == "gemini":
-        return _gemini_transcribe(audio, cfg, timeout, client)
+        return _gemini_transcribe(audio, cfg, timeout, client, notice)
     raise SttError(f"provider STT sconosciuto: {cfg.provider}")
 
 
@@ -104,32 +114,49 @@ def _gemini_payload(audio: bytes, cfg: SttConfig) -> dict:
     }
 
 
-def _gemini_transcribe(audio: bytes, cfg: SttConfig, timeout: float, client) -> str:
+def _gemini_transcribe(audio: bytes, cfg: SttConfig, timeout: float, client, notice) -> str:
     key = api_key(*GEMINI_KEYS)
     if not key:
         raise SttError("manca GEMINI_API_KEY")
-    url = _gemini.endpoint(cfg.model, "generateContent")
     headers = {"x-goog-api-key": key, "content-type": "application/json"}
     payload = _gemini_payload(audio, cfg)
+    model = cfg.model
+    tried = {_gemini.normalize_model(model)}
 
     with _client(client, timeout) as http:
-        for attempt, body in enumerate((payload, _gemini.strip_thinking(payload))):
-            resp = http.post(url, headers=headers, json=body, timeout=timeout)
+        for _ in range(_MAX_ATTEMPTS):
+            resp = http.post(
+                _gemini.endpoint(model, "generateContent"),
+                headers=headers,
+                json=payload,
+                timeout=timeout,
+            )
             if resp.status_code >= 400:
-                if attempt == 0 and _gemini.is_thinking_error(resp.status_code, resp.text):
+                detail = resp.text
+                if "thinkingConfig" in (payload.get("generationConfig") or {}) and _gemini.is_thinking_error(
+                    resp.status_code, detail
+                ):
+                    payload = _gemini.strip_thinking(payload)
                     continue
-                raise SttError(f"Gemini STT {resp.status_code}: {resp.text[:300]}")
+                # Google ritira i modelli e nell'errore dice quale usare al suo
+                # posto: seguiamo il consiglio invece di perdere il turno
+                replacement = _gemini.suggested_model(detail, model)
+                if replacement and replacement not in tried:
+                    _notify(notice, _gemini.retired_notice(model, replacement, "stt"))
+                    model, _ = replacement, tried.add(replacement)
+                    continue
+                raise SttError(f"Gemini STT {resp.status_code}: {detail[:300]}")
+
             data = resp.json()
             text = _gemini.response_text(data).strip()
             if text:
                 return _clean(text)
             # nessun testo: se ha esaurito i token pensando, avvisa invece di
             # far finta che il conduttore non abbia detto niente
-            finish = _gemini.finish_reason(data)
-            if finish.upper() == "MAX_TOKENS":
-                raise SttError(_gemini.empty_answer_hint(finish, "", cfg.model))
+            if _gemini.finish_reason(data).upper() == "MAX_TOKENS":
+                raise SttError(_gemini.empty_answer_hint("MAX_TOKENS", "", model))
             return ""
-    return ""
+    raise SttError("Gemini STT: troppi tentativi falliti di seguito")
 
 
 def _clean(text: str) -> str:

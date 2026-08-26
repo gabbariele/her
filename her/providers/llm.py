@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Callable, Iterator
 
 import httpx
 
@@ -12,9 +12,17 @@ from . import _gemini
 
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 
+#: quante volte al massimo si riprova cambiando modello o togliendo il thinking
+_MAX_ATTEMPTS = 4
+
 
 class LlmError(RuntimeError):
     pass
+
+
+def _notify(notice: Callable[[str], None] | None, message: str) -> None:
+    if notice is not None:
+        notice(message)
 
 
 def stream_reply(
@@ -23,12 +31,13 @@ def stream_reply(
     cfg: LlmConfig,
     timeout: float = 120.0,
     client: httpx.Client | None = None,
+    notice: Callable[[str], None] | None = None,
 ) -> Iterator[str]:
     """Genera la risposta dell'ospite. `history` = [{'role': 'user'|'assistant', 'content': str}]."""
     if cfg.provider == "openai":
         yield from _openai(system_prompt, history, cfg, timeout, client)
     elif cfg.provider == "gemini":
-        yield from _gemini_stream(system_prompt, history, cfg, timeout, client)
+        yield from _gemini_stream(system_prompt, history, cfg, timeout, client, notice)
     else:
         raise LlmError(f"provider LLM sconosciuto: {cfg.provider}")
 
@@ -93,26 +102,37 @@ def _gemini_payload(system_prompt: str, history: list[dict], cfg: LlmConfig) -> 
     }
 
 
-def _gemini_stream(system_prompt, history, cfg: LlmConfig, timeout, client) -> Iterator[str]:
+def _gemini_stream(system_prompt, history, cfg: LlmConfig, timeout, client, notice) -> Iterator[str]:
     key = api_key(*GEMINI_KEYS)
     if not key:
         raise LlmError("manca GEMINI_API_KEY")
-    url = _gemini.endpoint(cfg.model, "streamGenerateContent", sse=True)
     headers = {"x-goog-api-key": key, "content-type": "application/json"}
     payload = _gemini_payload(system_prompt, history, cfg)
+    model = cfg.model
+    tried = {_gemini.normalize_model(model)}
 
     with _client(client, timeout) as http:
-        for attempt, body in enumerate((payload, _gemini.strip_thinking(payload))):
+        for _ in range(_MAX_ATTEMPTS):
             emitted = False
             finish = blocked = ""
-            with http.stream("POST", url, headers=headers, json=body, timeout=timeout) as resp:
+            url = _gemini.endpoint(model, "streamGenerateContent", sse=True)
+            with http.stream("POST", url, headers=headers, json=payload, timeout=timeout) as resp:
                 if resp.status_code >= 400:
-                    text = _body(resp)
-                    # certe famiglie di modelli non accettano il campo thinking:
-                    # in quel caso si riprova una volta sola, senza
-                    if attempt == 0 and _gemini.is_thinking_error(resp.status_code, text):
+                    detail = _body(resp)
+                    # certe famiglie di modelli non accettano il campo thinking
+                    if "thinkingConfig" in (payload.get("generationConfig") or {}) and _gemini.is_thinking_error(
+                        resp.status_code, detail
+                    ):
+                        payload = _gemini.strip_thinking(payload)
                         continue
-                    raise LlmError(f"Gemini LLM {resp.status_code}: {text[:300]}")
+                    # e ogni tanto Google ritira un modello, dicendo quale usare
+                    replacement = _gemini.suggested_model(detail, model)
+                    if replacement and replacement not in tried:
+                        _notify(notice, _gemini.retired_notice(model, replacement, "llm"))
+                        model, _ = replacement, tried.add(replacement)
+                        continue
+                    raise LlmError(f"Gemini LLM {resp.status_code}: {detail[:300]}")
+
                 for data in _sse(resp):
                     chunk = _json(data)
                     if not chunk:
@@ -124,8 +144,9 @@ def _gemini_stream(system_prompt, history, cfg: LlmConfig, timeout, client) -> I
                         emitted = True
                         yield piece
             if not emitted:
-                raise LlmError(_gemini.empty_answer_hint(finish, blocked, cfg.model))
+                raise LlmError(_gemini.empty_answer_hint(finish, blocked, model))
             return
+    raise LlmError("Gemini LLM: troppi tentativi falliti di seguito")
 
 
 def _sse(resp: httpx.Response) -> Iterator[str]:

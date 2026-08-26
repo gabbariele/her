@@ -134,7 +134,7 @@ class Config:
 #: cambia provider da riga di comando senza indicare anche il modello
 DEFAULT_MODELS = {
     ("openai", "stt"): "gpt-4o-transcribe",
-    ("gemini", "stt"): "gemini-2.5-flash-lite",
+    ("gemini", "stt"): "gemini-3.5-flash-lite",
     ("openai", "llm"): "gpt-4o",
     ("gemini", "llm"): "gemini-3.5-flash-lite",
 }

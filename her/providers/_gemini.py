@@ -8,6 +8,7 @@ ad alta voce.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 BASE = "https://generativelanguage.googleapis.com/v1beta"
@@ -66,6 +67,35 @@ def strip_thinking(payload: dict) -> dict:
     config.pop("thinkingConfig", None)
     clean["generationConfig"] = config
     return clean
+
+
+_SUGGESTED = re.compile(r"use\s+(?:the\s+)?models/([\w.\-]+)", re.I)
+_ANY_MODEL = re.compile(r"models/([\w.\-]+)")
+
+
+def suggested_model(body: str, current: str) -> str | None:
+    """Il modello indicato da Google quando quello richiesto è stato ritirato.
+
+    L'errore dice testualmente «... is no longer available ... please update your
+    code to use models/<altro>»: invece di far fallire la puntata, quel nome lo
+    leggiamo e riproviamo con quello.
+    """
+    if "no longer available" not in body.lower() and "not found" not in body.lower():
+        return None
+    match = _SUGGESTED.search(body)
+    if match and normalize_model(match.group(1)) != normalize_model(current):
+        return normalize_model(match.group(1))
+    for name in reversed(_ANY_MODEL.findall(body)):
+        if normalize_model(name) != normalize_model(current):
+            return normalize_model(name)
+    return None
+
+
+def retired_notice(old: str, new: str, section: str) -> str:
+    return (
+        f"{old} non è più disponibile: uso {new}. "
+        f"Aggiorna la riga `model:` sotto `{section}:` nel preset per non rivedere questo avviso."
+    )
 
 
 def part_text(part: dict) -> str:

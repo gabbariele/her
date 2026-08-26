@@ -45,7 +45,7 @@ def _fake_tts(text, cfg, sample_rate=SR, timeout=60.0):
     yield tone[sample_rate // 4:]
 
 
-def _fake_llm(system_prompt, history, cfg, timeout=120.0):
+def _fake_llm(system_prompt, history, cfg, timeout=120.0, client=None, notice=None):
     last = history[-1]["content"]
     for token in ["Interessante", " quello che dici su ", last, ". ", "Vuoi che approfondisca?"]:
         yield token
@@ -120,7 +120,9 @@ def test_llm_failure_does_not_kill_the_session(tmp_path, monkeypatch, patched):
 
 def test_mic_turn_is_transcribed_and_answered(tmp_path, monkeypatch, patched):
     monkeypatch.setattr(
-        session_module.stt_provider, "transcribe", lambda audio, sr, cfg: "domanda dal microfono"
+        session_module.stt_provider,
+        "transcribe",
+        lambda audio, sr, cfg, **kw: "domanda dal microfono",
     )
     cfg = load_config(overrides={"tts": {"voice_id": "fake"}})
     sess = PodcastSession(cfg, tmp_path / "s2")

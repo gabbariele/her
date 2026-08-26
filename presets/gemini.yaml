@@ -28,12 +28,13 @@ persona:
 
 stt:
   provider: gemini
-  # Modello che ascolta e trascrive. Alternative, dalla più economica:
-  #   gemini-2.5-flash-lite   economico e multimodale (predefinito qui)
+  # Modello che ascolta e trascrive. Alternative:
+  #   gemini-3.5-flash-lite   economico e multimodale (predefinito qui)
   #   gemini-3.5-transcribe   modello dedicato alla trascrizione, più preciso
-  #   gemini-3.5-flash-lite   se vuoi la generazione più recente
-  # Con `her models` vedi cosa offre davvero la tua chiave.
-  model: gemini-2.5-flash-lite
+  # Con `her models` (o modelli.bat) vedi cosa offre davvero la tua chiave:
+  # Google ritira i modelli vecchi, e gemini-2.5-flash-lite non è più
+  # disponibile per gli account nuovi.
+  model: gemini-3.5-flash-lite
   language: it
   thinking: "off"          # trascrivere non richiede ragionamento: così è più rapido
   # hint: "Weevo, ElevenLabs, podcasting"   # nomi propri ricorrenti, se ce ne sono
@@ -41,8 +42,7 @@ stt:
 llm:
   provider: gemini
   # La testa dell'ospite. Alternative:
-  #   gemini-2.5-flash-lite   la più economica in assoluto
-  #   gemini-3.5-flash-lite   più sveglia, costa un po' di più (predefinita qui)
+  #   gemini-3.5-flash-lite   la più economica fra quelle attuali (predefinita qui)
   #   gemini-3.5-flash        la migliore delle "flash", se vuoi risposte più ricche
   model: gemini-3.5-flash-lite
   temperature: 0.85

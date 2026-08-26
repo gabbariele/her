@@ -193,7 +193,9 @@ class PodcastSession:
     def _handle_turn(self, audio: np.ndarray, start: float, end: float) -> None:
         t0 = time.monotonic()
         try:
-            text = stt_provider.transcribe(audio, self.cfg.audio.sample_rate, self.cfg.stt)
+            text = stt_provider.transcribe(
+                audio, self.cfg.audio.sample_rate, self.cfg.stt, notice=_warn
+            )
         except Exception as exc:  # una sessione non si butta via per un errore di rete
             _warn(f"trascrizione fallita: {exc}")
             return
@@ -253,7 +255,7 @@ class PodcastSession:
         parts: list[str] = []
         try:
             tokens = llm_provider.stream_reply(
-                self.cfg.persona.system_prompt, self.history, self.cfg.llm
+                self.cfg.persona.system_prompt, self.history, self.cfg.llm, notice=_warn
             )
             for sentence in iter_sentences(_tee(tokens, parts)):
                 if self._stop.is_set():
