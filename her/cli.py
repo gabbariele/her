@@ -60,6 +60,9 @@ def _device(value: str):
 
 def _load(args: argparse.Namespace) -> Config:
     cfg = load_config(getattr(args, "preset", None), _overrides(args))
+    if not cfg.tts.voice_id:
+        # comodo per chi non vuole toccare i preset: basta HER_VOICE_ID nel .env
+        cfg.tts.voice_id = os.environ.get("HER_VOICE_ID", "")
     context_file = getattr(args, "context", None)
     if context_file:
         extra = Path(context_file).read_text(encoding="utf-8").strip()

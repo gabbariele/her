@@ -174,9 +174,14 @@ def load_env(path: str | Path = ".env") -> None:
 
 
 def api_key(*names: str) -> str | None:
+    """Prima chiave valorizzata fra quelle indicate.
+
+    I segnaposto lasciati nel `.env` (`sk-...`, `...`) contano come assenti:
+    altrimenti `her check` direbbe che è tutto a posto quando non lo è.
+    """
     for name in names:
-        value = os.environ.get(name)
-        if value:
+        value = (os.environ.get(name) or "").strip().strip('"').strip("'")
+        if value and "..." not in value:
             return value
     return None
 

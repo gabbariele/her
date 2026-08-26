@@ -8,6 +8,10 @@ soli e ti ritrovi la puntata montata, con trascrizione e sottotitoli.
 Sì: **si può fare**, e con le API che hai già (OpenAI, Gemini, ElevenLabs) non
 serve altro. Questa è l'implementazione.
 
+> **Non sei uno sviluppatore?** Salta questo file e segui
+> **[INSTALLA.md](INSTALLA.md)**: installazione a doppio clic, spiegata passo
+> passo, senza terminale.
+
 ---
 
 ## Come funziona
@@ -63,6 +67,11 @@ git clone <questo-repo> && cd her
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[audio,dev]"
 ```
+
+Oppure `./setup.sh` (macOS/Linux) o `setup.bat` (Windows), che fanno lo stesso
+senza chiedere niente. Per chi non usa il terminale ci sono i lanciatori a
+doppio clic: `setup.command`, `voci.command`, `registra.command` su macOS,
+`setup.bat`, `voci.bat`, `verifica.bat`, `registra.bat` su Windows.
 
 Su Linux serve PortAudio (`sudo apt install libportaudio2`); su macOS e Windows
 `sounddevice` si porta dietro tutto. Per l'export MP3 serve `ffmpeg` nel PATH
@@ -221,6 +230,9 @@ her/
 ├── audio/           microfono, VAD, riproduzione, registratore multitraccia, WAV
 └── providers/       openai, gemini, elevenlabs
 ```
+
+Il `voice_id` si può mettere nel preset oppure, più comodo, in `HER_VOICE_ID`
+dentro il `.env`: il preset ha comunque la precedenza.
 
 ## Limiti noti
 

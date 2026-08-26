@@ -42,3 +42,37 @@ def test_load_env_does_not_override_existing(tmp_path, monkeypatch):
 
     assert os.environ["OPENAI_API_KEY"] == "gia-presente"
     assert os.environ["HER_TEST_X"] == "1"
+
+
+def test_voice_id_can_come_from_the_environment(monkeypatch):
+    from her.cli import _load
+
+    class Args:
+        preset = None
+        context = None
+
+    monkeypatch.setenv("HER_VOICE_ID", "voce-dal-env")
+    assert _load(Args()).tts.voice_id == "voce-dal-env"
+
+
+def test_preset_voice_wins_over_the_environment(monkeypatch, tmp_path):
+    from her.cli import _load
+
+    preset = tmp_path / "p.yaml"
+    preset.write_text("tts:\n  voice_id: dal-preset\n", encoding="utf-8")
+
+    class Args:
+        context = None
+
+    Args.preset = str(preset)
+    monkeypatch.setenv("HER_VOICE_ID", "voce-dal-env")
+    assert _load(Args()).tts.voice_id == "dal-preset"
+
+
+def test_placeholder_keys_count_as_missing(monkeypatch):
+    from her.config import api_key
+
+    monkeypatch.setenv("HER_TEST_KEY", "sk-...")
+    assert api_key("HER_TEST_KEY") is None
+    monkeypatch.setenv("HER_TEST_KEY", "  sk-vera123  ")
+    assert api_key("HER_TEST_KEY") == "sk-vera123"
