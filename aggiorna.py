@@ -20,8 +20,10 @@ REPO = "gabbariele/her"
 BRANCH = "claude/interactive-podcast-audio-software-9yczan"
 URL = f"https://github.com/{REPO}/archive/refs/heads/{BRANCH}.zip"
 
-#: quello che è tuo e non va toccato per nessun motivo
-PRESERVE = {".env", "sessions", ".venv", "presets-backup", ".git"}
+#: quello che è tuo e non va toccato per nessun motivo (chiavi, puntate,
+#: appunti della puntata e pagine già scaricate)
+PRESERVE = {".env", "sessions", ".venv", "presets-backup", ".git",
+            "contesto.md", "contesto-cache"}
 
 
 def main(here: Path | None = None) -> int:

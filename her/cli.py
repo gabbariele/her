@@ -64,6 +64,57 @@ def _overrides(args: argparse.Namespace) -> dict:
     return {k: v for k, v in out.items() if v}
 
 
+def context_notes(args: argparse.Namespace, cfg: Config) -> tuple[str, Path | None]:
+    """Gli appunti della puntata: quelli indicati con --context, o contesto.md."""
+    chosen = getattr(args, "context", None)
+    path = Path(chosen) if chosen else Path(cfg.context.file)
+    if not path.exists():
+        if chosen:
+            raise FileNotFoundError(f"file di contesto non trovato: {path}")
+        return "", None
+    return path.read_text(encoding="utf-8"), path
+
+
+def prepare_context(args: argparse.Namespace, cfg: Config) -> str:
+    """Legge gli appunti, segue i link e prepara il materiale per l'ospite."""
+    from .context import build_briefing
+
+    notes, path = context_notes(args, cfg)
+    if not notes.strip():
+        return ""
+    print(f"Contesto: {path}")
+    briefing = build_briefing(
+        notes,
+        cfg.context,
+        cfg.llm,
+        reload=getattr(args, "ricarica", False),
+        notice=lambda msg: print(f"  {msg}"),
+    )
+    cfg.persona.briefing = briefing
+    return briefing
+
+
+def cmd_context(args: argparse.Namespace) -> int:
+    """Mostra il materiale che l'ospite avrà in mano: si controlla prima di registrare."""
+    from .context import TEMPLATE
+
+    cfg = _load(args)
+    path = Path(getattr(args, "context", None) or cfg.context.file)
+    if not path.exists():
+        path.write_text(TEMPLATE, encoding="utf-8")
+        print(f"Creato {path}: scrivici il contesto della puntata e rilancia.")
+        return 0
+    briefing = prepare_context(args, cfg)
+    if not briefing:
+        print(f"{path} è vuoto: scrivici cosa deve sapere l'ospite.")
+        return 0
+    print("\n" + "=" * 72)
+    print(briefing)
+    print("=" * 72)
+    print(f"\n{len(briefing)} caratteri, che l'ospite avrà presenti per tutta la puntata.")
+    return 0
+
+
 def _mmss(seconds: float) -> str:
     minutes, secs = divmod(int(round(seconds)), 60)
     return f"{minutes}m{secs:02d}s" if minutes else f"{secs}s"
@@ -98,10 +149,8 @@ def _load(args: argparse.Namespace) -> Config:
             cfg.vad.silence_ms = int(float(pausa.replace(",", ".")) * 1000)
         except ValueError:
             raise ValueError(f"HER_PAUSA deve essere un numero di secondi, non {pausa!r}") from None
-    context_file = getattr(args, "context", None)
-    if context_file:
-        extra = Path(context_file).read_text(encoding="utf-8").strip()
-        cfg.persona.system_prompt = f"{cfg.persona.system_prompt}\n\n{extra}"
+    if getattr(args, "no_link", False):
+        cfg.context.follow_links = False
     return cfg
 
 
@@ -195,8 +244,12 @@ def cmd_record(args: argparse.Namespace) -> int:
     if not cfg.tts.voice_id:
         print("Nessuna voce impostata: scegline una con `her voices` e passa --voice <id>.", file=sys.stderr)
         return 1
+    briefing = prepare_context(args, cfg)
     out_dir = Path(args.out) if args.out else new_session_dir(args.sessions, args.name)
     print(f"Sessione: {out_dir}")
+    if briefing:
+        # copia del materiale usato: fra un mese vorrai sapere cosa sapeva
+        (out_dir / "contesto-usato.md").write_text(briefing, encoding="utf-8")
     session = PodcastSession(cfg, out_dir, text_input=args.text)
     session.run()
     print(f"\nRegistrato: {session.recorder.duration:.1f}s in {out_dir}")
@@ -344,7 +397,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     def common(p: argparse.ArgumentParser, full: bool = True) -> None:
         p.add_argument("-p", "--preset", help="preset YAML (nome in presets/ o percorso)")
-        p.add_argument("--context", help="file di testo da aggiungere al contesto dell'ospite")
+        p.add_argument("--context", metavar="FILE",
+                       help="appunti della puntata (default: contesto.md, se c'è)")
+        p.add_argument("--no-link", action="store_true",
+                       help="non scaricare i link trovati negli appunti")
+        p.add_argument("--ricarica", action="store_true",
+                       help="riscarica i link anche se sono già in cache")
         p.add_argument("--lunghezza", choices=list(LENGTH_RULES),
                        help="quanto parla l'ospite (default: media)")
         p.add_argument("--domande", choices=list(QUESTION_RULES),
@@ -406,6 +464,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_mod.add_argument("--provider", choices=["openai", "gemini"], help="default: quello del preset")
     p_mod.add_argument("--search", help="filtra per nome")
     p_mod.set_defaults(func=cmd_models)
+
+    p_ctx = sub.add_parser("contesto", help="prepara e mostra il materiale della puntata")
+    common(p_ctx)
+    p_ctx.set_defaults(func=cmd_context)
 
     p_ses = sub.add_parser("sessioni", help="elenca le puntate e i file di ciascuna")
     p_ses.add_argument("--sessions", default="sessions", help="cartella radice delle puntate")

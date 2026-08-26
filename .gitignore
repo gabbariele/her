@@ -4,6 +4,8 @@ __pycache__/
 venv/
 .env
 sessions/
+contesto.md
+contesto-cache/
 *.wav
 *.mp3
 .pytest_cache/

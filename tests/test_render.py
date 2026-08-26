@@ -148,3 +148,22 @@ def test_sessions_report_flags_a_missing_montage(tmp_path, capsys):
     assert "host.wav" in out and "registrazione-integrale.wav" in out
     assert "MANCA" in out and "podcast.wav" in out
     assert "monta.bat" in out
+
+
+def test_the_greeting_is_left_out_of_the_montage(tmp_path):
+    events = [
+        {"speaker": "guest", "start": 0.5, "end": 2.5, "text": "Ciao, eccomi!", "kind": "greeting"},
+        {"speaker": "host", "start": 4.0, "end": 6.0, "text": "prima domanda"},
+        {"speaker": "guest", "start": 8.0, "end": 10.0, "text": "prima risposta"},
+    ]
+    d = _session(tmp_path, events, host_spans=[(4, 6)], guest_spans=[(0.5, 2.5), (8, 10)], length=12.0)
+
+    montato = render_session(d, RenderConfig(mp3=False))
+    assert [s["text"] for s in montato.segments] == ["prima domanda", "prima risposta"]
+    assert "eccomi" not in montato.transcript.read_text(encoding="utf-8")
+    # ma nella registrazione integrale il saluto c'è ancora
+    integrale, _ = read_wav(montato.full)
+    assert np.max(np.abs(integrale[int(1 * SR):int(2 * SR)])) > 1000
+
+    tenuto = render_session(d, RenderConfig(mp3=False, drop_greeting=False))
+    assert len(tenuto.segments) == 3

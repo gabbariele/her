@@ -344,7 +344,11 @@ class PodcastSession:
             self.endpointer.reset()
             self._listening.set()
         if self._guest_span:
-            self.recorder.log_event("guest", self._guest_span[0], self._guest_span[-1], greeting)
+            # marcato come saluto: il montaggio lo lascia fuori, la
+            # registrazione integrale invece ce l'ha
+            self.recorder.log_event(
+                "guest", self._guest_span[0], self._guest_span[-1], greeting, kind="greeting"
+            )
         self.history.append({"role": "assistant", "content": greeting})
         _say(Ansi.GUEST, self.cfg.persona.name, greeting)
 

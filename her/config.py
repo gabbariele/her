@@ -140,6 +140,8 @@ class PersonaConfig:
     #: indicazioni libere da aggiungere al carattere, senza riscrivere il prompt
     #: (es. "sii più ironica", "parla più di musica"). Anche da HER_INDICAZIONI.
     notes: str = ""
+    #: il materiale della puntata (appunti + pagine lette), montato da her.context
+    briefing: str = ""
 
     def effective_prompt(self) -> str:
         """Il prompt del preset più le regole di lunghezza e di domande.
@@ -150,6 +152,8 @@ class PersonaConfig:
         parts = [self.system_prompt.strip(), VARIETY_RULE]
         if self.notes.strip():
             parts.append(f"INDICAZIONI PER OGGI: {self.notes.strip()}")
+        if self.briefing.strip():
+            parts.append(self.briefing.strip())
         if self.length:
             parts.append(LENGTH_RULES[_valid(self.length, LENGTH_RULES, "persona.length")][0])
         if self.questions:
@@ -171,6 +175,19 @@ def _valid(value: str, table: dict, where: str) -> str:
 
 
 @dataclass
+class ContextConfig:
+    #: file con gli appunti della puntata, caricato da solo se esiste
+    file: str = "contesto.md"
+    #: scaricare e leggere i link trovati negli appunti
+    follow_links: bool = True
+    #: farli condensare in punti dall'LLM (costa pochissimo e tiene corto il contesto)
+    summarize: bool = True
+    max_chars_per_link: int = 6000
+    max_links: int = 8
+    timeout: float = 20.0
+
+
+@dataclass
 class SessionConfig:
     #: microfono chiuso mentre l'ospite parla: evita rientri se usi gli altoparlanti
     half_duplex: bool = True
@@ -184,6 +201,9 @@ class SessionConfig:
 class RenderConfig:
     #: pausa massima lasciata fra un turno e l'altro (i vuoti vengono tagliati)
     max_gap_s: float = 0.45
+    #: il saluto iniziale dell'ospite resta fuori dal montato (c'è comunque
+    #: nella registrazione integrale)
+    drop_greeting: bool = True
     #: silenzio davanti e in coda al montato
     lead_in_s: float = 0.3
     tail_s: float = 0.8
@@ -208,6 +228,7 @@ class Config:
     tts: TtsConfig = field(default_factory=TtsConfig)
     persona: PersonaConfig = field(default_factory=PersonaConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
+    context: ContextConfig = field(default_factory=ContextConfig)
     render: RenderConfig = field(default_factory=RenderConfig)
 
     def sync(self) -> "Config":

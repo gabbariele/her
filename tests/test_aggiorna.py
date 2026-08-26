@@ -66,3 +66,15 @@ def test_update_survives_a_broken_download(tmp_path, aggiorna, monkeypatch):
     monkeypatch.setattr(aggiorna, "URL", broken.as_uri())
     assert aggiorna.main(here=home) == 1
     assert "intatta" in (home / ".env").read_text()
+
+
+def test_update_keeps_the_episode_notes(tmp_path, aggiorna, monkeypatch):
+    home = tmp_path / "her"
+    (home / "contesto-cache").mkdir(parents=True)
+    (home / "contesto.md").write_text("# Puntata di domani\nSi parla di vinile.\n")
+    (home / "contesto-cache" / "abc.json").write_text('{"url": "x"}')
+
+    monkeypatch.setattr(aggiorna, "URL", _fake_release(tmp_path / "release.zip"))
+    assert aggiorna.main(here=home) == 0
+    assert "vinile" in (home / "contesto.md").read_text()
+    assert (home / "contesto-cache" / "abc.json").exists()

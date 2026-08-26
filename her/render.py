@@ -124,6 +124,8 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
     full_path = write_wav(session_dir / "registrazione-integrale.wav", integrale, sr)
 
     events = [e for e in read_events(session_dir) if e["speaker"] in tracks]
+    if cfg.drop_greeting:
+        events = [e for e in events if e.get("kind") != "greeting"]
     if not events:
         # niente timeline: il montato è la registrazione integrale, meglio di niente
         out = write_wav(session_dir / "podcast.wav", integrale, sr)
