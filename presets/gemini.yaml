@@ -53,8 +53,16 @@ llm:
 tts:
   # La voce resta ElevenLabs: è l'unica cosa per cui non serve Gemini.
   model: eleven_turbo_v2_5
+  # Lingua imposta al modello: senza, una voce inglese legge l'italiano con
+  # l'accento sbagliato. Funziona con eleven_turbo_v2_5 e eleven_flash_v2_5.
+  language: it
   stability: 0.45
   similarity_boost: 0.8
+
+vad:
+  # Quanto silenzio aspettare prima di considerare finito il tuo turno.
+  # Se fai pause per pensare mentre parli, alzalo (1800 = quasi due secondi).
+  silence_ms: 1400
 
 render:
   max_gap_s: 0.45

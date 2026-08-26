@@ -30,8 +30,9 @@ class VadConfig:
     threshold_db: float = 10.0
     #: pavimento assoluto: sotto questo livello è sempre silenzio
     floor_db: float = -50.0
-    #: silenzio necessario per considerare finito il turno
-    silence_ms: int = 700
+    #: silenzio necessario per considerare finito il turno.
+    #: alzalo se ti capita di fare pause per pensare mentre parli
+    silence_ms: int = 1200
     #: parlato minimo perché un turno sia valido (filtra colpi di tosse e click)
     min_speech_ms: int = 350
     #: audio conservato prima dell'attacco, per non tagliare la prima sillaba

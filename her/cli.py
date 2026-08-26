@@ -24,7 +24,10 @@ PRESET_DIR = Path(__file__).resolve().parent.parent / "presets"
 
 
 def _overrides(args: argparse.Namespace) -> dict:
-    out: dict = {"audio": {}, "llm": {}, "stt": {}, "tts": {}, "session": {}, "render": {}, "persona": {}}
+    out: dict = {"audio": {}, "vad": {}, "llm": {}, "stt": {},
+                 "tts": {}, "session": {}, "render": {}, "persona": {}}
+    if getattr(args, "pausa", None) is not None:
+        out["vad"]["silence_ms"] = int(float(args.pausa) * 1000)
     if getattr(args, "voice", None):
         out["tts"]["voice_id"] = args.voice
     if getattr(args, "tts_model", None):
@@ -55,6 +58,11 @@ def _overrides(args: argparse.Namespace) -> dict:
     return {k: v for k, v in out.items() if v}
 
 
+def _mmss(seconds: float) -> str:
+    minutes, secs = divmod(int(round(seconds)), 60)
+    return f"{minutes}m{secs:02d}s" if minutes else f"{secs}s"
+
+
 def _device(value: str):
     try:
         return int(value)
@@ -68,6 +76,12 @@ def _load(args: argparse.Namespace) -> Config:
     if not cfg.tts.voice_id:
         # comodo per chi non vuole toccare i preset: basta HER_VOICE_ID nel .env
         cfg.tts.voice_id = os.environ.get("HER_VOICE_ID", "")
+    pausa = os.environ.get("HER_PAUSA")
+    if pausa and getattr(args, "pausa", None) is None:
+        try:
+            cfg.vad.silence_ms = int(float(pausa.replace(",", ".")) * 1000)
+        except ValueError:
+            raise ValueError(f"HER_PAUSA deve essere un numero di secondi, non {pausa!r}") from None
     context_file = getattr(args, "context", None)
     if context_file:
         extra = Path(context_file).read_text(encoding="utf-8").strip()
@@ -90,8 +104,10 @@ def cmd_check(args: argparse.Namespace) -> int:
     thinking = f", thinking: {cfg.llm.thinking}" if cfg.llm.provider == "gemini" else ""
     print(f"  STT   {cfg.stt.provider}/{cfg.stt.model} (lingua: {cfg.stt.language})")
     print(f"  LLM   {cfg.llm.provider}/{cfg.llm.model}{thinking}")
-    print(f"  TTS   {cfg.tts.provider}/{cfg.tts.model} voce: {cfg.tts.voice_id or 'NON IMPOSTATA'}")
-    print(f"  Audio {cfg.audio.sample_rate} Hz, frame {cfg.audio.frame_ms} ms")
+    print(f"  TTS   {cfg.tts.provider}/{cfg.tts.model} voce: {cfg.tts.voice_id or 'NON IMPOSTATA'}"
+          f" (lingua: {cfg.tts.language or 'automatica'})")
+    print(f"  Audio {cfg.audio.sample_rate} Hz · attesa prima della risposta: "
+          f"{cfg.vad.silence_ms / 1000:.1f}s")
     print(f"  Ospite: {cfg.persona.name}")
 
     needed = {"openai": OPENAI_KEYS, "gemini": GEMINI_KEYS}
@@ -130,7 +146,9 @@ def cmd_voices(args: argparse.Namespace) -> int:
         labels = voice.get("labels") or {}
         tags = ", ".join(f"{k}={v}" for k, v in labels.items() if v)
         print(f"  {voice.get('voice_id')}  {name:<22} {tags}")
-    print(f"\n{len(voices)} voci. Usa l'id con `her record --voice <id>` o mettilo nel preset.")
+    print(f"\n{len(voices)} voci. Copia l'id e mettilo in HER_VOICE_ID dentro il file .env.")
+    print("Per un podcast in italiano scegli una voce italiana o multilingua: la lingua "
+          "viene imposta al modello, ma l'accento resta quello di chi ha inciso la voce.")
     return 0
 
 
@@ -182,10 +200,11 @@ def cmd_render(args: argparse.Namespace) -> int:
 
 def _render(session_dir: Path, cfg: Config) -> int:
     result = render_session(session_dir, cfg.render)
-    print(f"\nMontato: {result.wav}  ({result.duration:.1f}s, tagliati {result.saved:.1f}s di vuoti)")
+    print(f"\nMontato:   {result.wav}  ({_mmss(result.duration)}, tagliati {_mmss(result.saved)} di vuoti)")
     if result.mp3:
-        print(f"MP3:     {result.mp3}")
-    print(f"Testi:   {result.transcript} · {result.srt}")
+        print(f"MP3:       {result.mp3}")
+    print(f"Integrale: {result.full}  ({_mmss(result.raw_duration)}, tutto, non montato)")
+    print(f"Testi:     {result.transcript} · {result.srt}")
     return 0
 
 
@@ -263,6 +282,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_rec.add_argument("--sessions", default="sessions", help="cartella radice delle sessioni")
     p_rec.add_argument("--name", help="nome della sessione")
     p_rec.add_argument("--text", action="store_true", help="scrivi invece di parlare (per provare)")
+    p_rec.add_argument("--pausa", type=float, metavar="SECONDI",
+                       help="silenzio da aspettare prima che l'ospite risponda (default: 1.2)")
     p_rec.add_argument("--barge-in", action="store_true", help="puoi interrompere l'ospite (usa le cuffie)")
     p_rec.add_argument("--no-render", action="store_true", help="non montare a fine registrazione")
     p_rec.add_argument("--max-gap", type=float, help="pausa massima nel montaggio (s)")

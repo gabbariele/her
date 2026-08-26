@@ -9,8 +9,8 @@ Sì: **si può fare**, e con le API che hai già (OpenAI, Gemini, ElevenLabs) no
 serve altro. Questa è l'implementazione.
 
 > **Non sei uno sviluppatore?** Salta questo file e segui
-> **[INSTALLA.md](INSTALLA.md)**: installazione a doppio clic, spiegata passo
-> passo, senza terminale.
+> **[INSTALLA.md](INSTALLA.md)**: installazione a doppio clic su Windows,
+> spiegata passo passo, senza terminale.
 
 ---
 
@@ -70,9 +70,9 @@ pip install -e ".[audio,dev]"
 
 Oppure `./setup.sh` (macOS/Linux) o `setup.bat` (Windows), che fanno lo stesso
 senza chiedere niente. Per chi non usa il terminale ci sono i lanciatori a
-doppio clic: `setup`, `voci`, `modelli`, `registra` e `aggiorna` (`.command` su
-macOS, `.bat` su Windows, più `verifica.bat`). `aggiorna` riscarica l'ultima
-versione lasciando intatti `.env` e `sessions/`.
+doppio clic (Windows): `setup.bat`, `voci.bat`, `modelli.bat`, `verifica.bat`,
+`registra.bat` e `aggiorna.bat` — quest'ultimo riscarica l'ultima versione
+lasciando intatti `.env` e `sessions/`.
 
 Su Linux serve PortAudio (`sudo apt install libportaudio2`); su macOS e Windows
 `sounddevice` si porta dietro tutto. Per l'export MP3 serve `ffmpeg` nel PATH
@@ -168,6 +168,9 @@ her render sessions/20260826-201500 --max-gap 0.25   # ritmo serrato
 her render sessions/20260826-201500 --max-gap 1.2    # più respiro
 ```
 
+Oltre al montato produce sempre `registrazione.wav`: le due voci sommate senza
+alcun taglio, coi tempi originali. È la copia integrale da cui si riparte.
+
 Cosa fa: prende ogni turno dalla sua traccia, li rimette in fila comprimendo le
 pause a `max_gap_s`, tiene le sovrapposizioni vere (quando interrompi l'ospite),
 mette un fade di 12 ms su ogni giunta per non sentire i click, normalizza a
@@ -183,6 +186,7 @@ Audition o Audacity e sei a casa.
 sessions/20260826-201500/
 ├── host.wav        la tua voce, dall'inizio alla fine
 ├── guest.wav       l'ospite, in silenzio quando non parla, perfettamente allineato
+├── registrazione.wav  le due voci in un file solo, coi tempi veri, niente tagliato
 ├── events.jsonl    un turno per riga: chi, da quando a quando, cosa ha detto
 ├── session.json    modelli, voce, persona, durata
 ├── podcast.wav     il montato
@@ -199,8 +203,12 @@ sessions/20260826-201500/
 - **Interromperlo.** Con le cuffie puoi usare `--barge-in`: parli sopra
   l'ospite e lui si zittisce a metà frase. In cuffia è naturalissimo, sugli
   altoparlanti innesca un loop.
-- **Se ti taglia le frasi** perché fai pause lunghe, alza `vad.silence_ms` a
-  900–1100. Se invece è lento a partire, scendi a 500.
+- **Se ti taglia le frasi** perché fai pause per pensare, alza l'attesa:
+  `--pausa 2.2`, oppure `HER_PAUSA=2.2` nel `.env`, oppure `vad.silence_ms` nel
+  preset. Il default è 1,2 s. Se invece è lento a partire, scendi a 0,8.
+- **Accento della voce**: `tts.language` (default `it`) impone la lingua al
+  modello ElevenLabs, ma l'accento resta quello di chi ha inciso la voce: per un
+  italiano madrelingua scegli una voce italiana dalla Voice Library.
 - **Se parte da solo** in una stanza rumorosa, alza `vad.threshold_db` da 10 a
   14–16 dB. La soglia effettiva te la stampa a inizio sessione.
 - **Risposte troppo lunghe** sono un problema di prompt, non di codice: metti

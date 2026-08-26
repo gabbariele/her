@@ -24,6 +24,7 @@ persona:
 tts:
   # voice_id: "..."   # <- mettici l'id preso da `her voices`
   model: eleven_turbo_v2_5
+  language: it
   stability: 0.45
   similarity_boost: 0.8
   speed: 1.0

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Installazione automatica di her (macOS e Linux).
-# Su macOS puoi anche fare doppio clic su "setup.command".
+# Installazione automatica di her (Linux e macOS).
+# Su Windows usa setup.bat.
 set -u
 cd "$(dirname "$0")"
 

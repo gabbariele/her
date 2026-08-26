@@ -57,6 +57,10 @@ class TtsConfig:
     provider: str = "elevenlabs"
     voice_id: str = ""
     model: str = "eleven_turbo_v2_5"
+    #: lingua imposta al modello (ISO 639-1). Serve a evitare che una voce
+    #: inglese legga l'italiano con l'accento sbagliato. Supportata da
+    #: eleven_turbo_v2_5 e eleven_flash_v2_5; "" per non inviarla.
+    language: str = "it"
     #: 0-4: più alto = meno latenza, leggermente meno qualità di pronuncia
     optimize_streaming_latency: int = 3
     stability: float = 0.45

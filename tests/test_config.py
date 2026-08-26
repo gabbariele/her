@@ -106,3 +106,27 @@ def test_switching_provider_switches_the_model_too():
     out = _overrides(Args())
     assert out["stt"]["model"].startswith("gemini")     # scelto per noi
     assert out["llm"]["model"] == "gemini-2.5-flash"    # quello chiesto esplicitamente
+
+
+def test_pause_can_be_set_from_command_line_and_env(monkeypatch):
+    from her.cli import _load, _overrides
+
+    class Args:
+        preset = "gemini"
+        context = None
+        pausa = 2.5
+
+    assert _overrides(Args())["vad"]["silence_ms"] == 2500
+    assert _load(Args()).vad.silence_ms == 2500
+
+    Args.pausa = None
+    monkeypatch.setenv("HER_PAUSA", "2")
+    assert _load(Args()).vad.silence_ms == 2000        # dal .env
+    monkeypatch.setenv("HER_PAUSA", "un-po-tanto")
+    with pytest.raises(ValueError, match="HER_PAUSA"):
+        _load(Args())
+
+
+def test_presets_speak_italian_to_elevenlabs():
+    for name in ("gemini", "intervista", "veloce", "esperto-tech"):
+        assert load_config(name).tts.language == "it", name

@@ -21,10 +21,11 @@ stt:
 
 tts:
   model: eleven_flash_v2_5
+  language: it
   optimize_streaming_latency: 4
 
 vad:
-  silence_ms: 550
+  silence_ms: 900
 
 render:
   max_gap_s: 0.3

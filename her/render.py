@@ -23,6 +23,8 @@ from .config import RenderConfig
 @dataclass
 class RenderResult:
     wav: Path
+    #: registrazione integrale, non montata: le due voci su un unico file
+    full: Path
     mp3: Path | None
     transcript: Path
     srt: Path
@@ -100,13 +102,18 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
     tracks = {"host": host, "guest": guest}
     raw_duration = max(host.size, guest.size) / sr
 
+    # registrazione integrale: tutto quello che è successo, in un file solo,
+    # con i tempi veri. È la copia di sicurezza da cui si riparte sempre.
+    integrale = _mix_full(host, guest, cfg)
+    full_path = write_wav(session_dir / "registrazione.wav", integrale, sr)
+
     events = [e for e in read_events(session_dir) if e["speaker"] in tracks]
     if not events:
-        # niente timeline: mix integrale delle due tracce, meglio di niente
-        mix = _mix_full(host, guest, cfg)
-        out = write_wav(session_dir / "podcast.wav", mix, sr)
-        return RenderResult(out, _to_mp3(out, cfg), _no_transcript(session_dir),
-                            _no_transcript(session_dir, "srt"), mix.size / sr, raw_duration, [])
+        # niente timeline: il montato è la registrazione integrale, meglio di niente
+        out = write_wav(session_dir / "podcast.wav", integrale, sr)
+        return RenderResult(out, full_path, _to_mp3(out, cfg), _no_transcript(session_dir),
+                            _no_transcript(session_dir, "srt"), integrale.size / sr,
+                            raw_duration, [])
 
     plan = plan_timeline(events, cfg)
     total = max(p["end"] for p in plan) + cfg.tail_s
@@ -128,6 +135,7 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
     srt = _write_srt(session_dir, plan)
     return RenderResult(
         wav=out,
+        full=full_path,
         mp3=_to_mp3(out, cfg),
         transcript=transcript,
         srt=srt,

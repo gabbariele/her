@@ -95,3 +95,23 @@ def test_gains_are_applied(tmp_path):
     host_peak = int(np.max(np.abs(audio[: SR])))
     guest_peak = int(np.max(np.abs(audio[SR: 2 * SR])))
     assert guest_peak < host_peak / 2
+
+
+def test_full_recording_is_always_written(tmp_path):
+    events = [
+        {"speaker": "host", "start": 1.0, "end": 3.0, "text": "domanda"},
+        {"speaker": "guest", "start": 8.0, "end": 11.0, "text": "risposta"},
+    ]
+    d = _session(tmp_path, events, host_spans=[(1, 3)], guest_spans=[(8, 11)], length=15.0)
+    result = render_session(d, RenderConfig(mp3=False))
+
+    integrale, rate = read_wav(result.full)
+    assert result.full.name == "registrazione.wav"
+    assert rate == SR
+    assert abs(integrale.size / SR - 15.0) < 0.01        # dura quanto la sessione vera
+    # contiene entrambe le voci, ai loro tempi originali
+    assert np.max(np.abs(integrale[int(1.5 * SR):int(2.5 * SR)])) > 1000
+    assert np.max(np.abs(integrale[int(9 * SR):int(10 * SR)])) > 1000
+    assert np.max(np.abs(integrale[int(5 * SR):int(6 * SR)])) == 0   # il silenzio resta
+    # il montato invece è più corto
+    assert result.duration < result.raw_duration
