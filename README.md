@@ -177,8 +177,9 @@ her render sessions/20260826-201500 --max-gap 0.25   # ritmo serrato
 her render sessions/20260826-201500 --max-gap 1.2    # più respiro
 ```
 
-Oltre al montato produce sempre `registrazione.wav`: le due voci sommate senza
-alcun taglio, coi tempi originali. È la copia integrale da cui si riparte.
+Senza argomenti monta l'ultima puntata registrata (è quello che fa `monta.bat`).
+Oltre al montato produce sempre `registrazione-integrale.wav`: le due voci
+sommate senza alcun taglio, coi tempi originali.
 
 Cosa fa: prende ogni turno dalla sua traccia, li rimette in fila comprimendo le
 pause a `max_gap_s`, tiene le sovrapposizioni vere (quando interrompi l'ospite),
@@ -195,7 +196,7 @@ Audition o Audacity e sei a casa.
 sessions/20260826-201500/
 ├── host.wav        la tua voce, dall'inizio alla fine
 ├── guest.wav       l'ospite, in silenzio quando non parla, perfettamente allineato
-├── registrazione.wav  le due voci in un file solo, coi tempi veri, niente tagliato
+├── registrazione-integrale.wav  le due voci in un file solo, pause comprese
 ├── events.jsonl    un turno per riga: chi, da quando a quando, cosa ha detto
 ├── session.json    modelli, voce, persona, durata
 ├── podcast.wav     il montato
@@ -220,8 +221,12 @@ sessions/20260826-201500/
   italiano madrelingua scegli una voce italiana dalla Voice Library.
 - **Se parte da solo** in una stanza rumorosa, alza `vad.threshold_db` da 10 a
   14–16 dB. La soglia effettiva te la stampa a inizio sessione.
-- **Risposte troppo lunghe** sono un problema di prompt, non di codice: metti
-  nel `system_prompt` un tetto esplicito di frasi. È già così nei preset.
+- **Quanto parla e quanto ti interroga** sono due manopole, non un problema di
+  prompt da riscrivere: `persona.length` (`breve`/`media`/`lunga`/`monologo`) e
+  `persona.questions` (`mai`/`raramente`/`spesso`), anche da `.env`
+  (`HER_LUNGHEZZA`, `HER_DOMANDE`) o da riga di comando. `persona.notes`
+  (`HER_INDICAZIONI`) aggiunge un'indicazione libera («sii più ironica»). Il
+  tetto di token sale da solo con la lunghezza, così la risposta non si tronca.
 - **Nomi propri sbagliati** nella trascrizione: `stt.hint` accetta un elenco di
   termini ricorrenti (nomi, sigle, marchi) e li fa riconoscere molto meglio.
 

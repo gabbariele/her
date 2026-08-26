@@ -1,6 +1,10 @@
 # Configurazione a latenza minima: risposte corte e modelli "flash".
 # Perde qualcosa in qualità, ma la voce parte in meno di un secondo e mezzo.
 persona:
+  # Quanto parla: breve | media | lunga | monologo
+  length: breve
+  # Quanto rimanda la palla a te: mai | raramente | spesso
+  questions: raramente
   name: "Eco"
   greeting: ""
   system_prompt: |

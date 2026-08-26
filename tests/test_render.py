@@ -106,7 +106,7 @@ def test_full_recording_is_always_written(tmp_path):
     result = render_session(d, RenderConfig(mp3=False))
 
     integrale, rate = read_wav(result.full)
-    assert result.full.name == "registrazione.wav"
+    assert result.full.name == "registrazione-integrale.wav"
     assert rate == SR
     assert abs(integrale.size / SR - 15.0) < 0.01        # dura quanto la sessione vera
     # contiene entrambe le voci, ai loro tempi originali
@@ -115,3 +115,21 @@ def test_full_recording_is_always_written(tmp_path):
     assert np.max(np.abs(integrale[int(5 * SR):int(6 * SR)])) == 0   # il silenzio resta
     # il montato invece è più corto
     assert result.duration < result.raw_duration
+
+
+def test_latest_session_is_found_for_monta_bat(tmp_path, monkeypatch):
+    """`her render` senza argomenti (cioè monta.bat) prende l'ultima puntata."""
+    from her.cli import latest_session
+
+    root = tmp_path / "sessions"
+    for name in ("20260101-100000", "20260102-100000"):
+        (root / name).mkdir(parents=True)
+        write_wav(root / name / "host.wav", np.zeros(SR, dtype=np.int16), SR)
+    # una cartella senza registrazione non è una puntata
+    (root / "appunti").mkdir()
+
+    import os
+    os.utime(root / "20260101-100000", (1_000_000, 1_000_000))    # la vecchia
+    os.utime(root / "20260102-100000", (2_000_000, 2_000_000))    # la più recente
+    assert latest_session(str(root)).name == "20260102-100000"
+    assert latest_session(str(tmp_path / "vuoto")) is None

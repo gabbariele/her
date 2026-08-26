@@ -105,7 +105,7 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
     # registrazione integrale: tutto quello che è successo, in un file solo,
     # con i tempi veri. È la copia di sicurezza da cui si riparte sempre.
     integrale = _mix_full(host, guest, cfg)
-    full_path = write_wav(session_dir / "registrazione.wav", integrale, sr)
+    full_path = write_wav(session_dir / "registrazione-integrale.wav", integrale, sr)
 
     events = [e for e in read_events(session_dir) if e["speaker"] in tracks]
     if not events:

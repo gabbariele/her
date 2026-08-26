@@ -174,9 +174,15 @@ Cosa succede:
    comparire quello che hai detto, e dopo un paio di secondi **l'ospite
    risponde con la voce che hai scelto**.
 4. Rispondi, ribatti, cambia argomento: va avanti finché vuoi.
-5. Per **chiudere la puntata premi `Ctrl` e `C` insieme**.
+5. Per **chiudere la puntata premi `Invio`**.
 
 Appena chiudi, monta da solo e ti dice dove ha messo tutto.
+
+> **Usa `Invio`, non `Ctrl-C`.** Su Windows `Ctrl-C` dentro una finestra `.bat`
+> fa comparire *"Terminate batch job (Y/N)?"* e può ammazzare il programma prima
+> che il montaggio sia scritto sul disco. Con `Invio` chiude con calma. Se ti
+> capita comunque di trovarti senza il montato, non hai perso niente: doppio
+> clic su **`monta.bat`** e lo rifà dalle tracce già registrate.
 
 ---
 
@@ -187,16 +193,17 @@ per ogni puntata (col nome della data e dell'ora). Lì trovi:
 
 | File | Cos'è |
 |---|---|
-| `podcast.mp3` | **la puntata montata**, senza i tempi morti — è questo che pubblichi |
+| `podcast.mp3` | **la puntata montata**: le due voci insieme, senza i vuoti — è questo che pubblichi |
 | `podcast.wav` | la stessa cosa, qualità piena |
-| `registrazione.wav` | **tutto quanto in un file solo**, coi tempi veri, niente tagliato |
+| `registrazione-integrale.wav` | tutto quanto in un file solo, coi tempi veri, pause comprese |
 | `transcript.md` | la trascrizione, con i minuti |
 | `transcript.srt` | i sottotitoli, se ti serve il video |
 | `host.wav` | solo la tua voce |
 | `guest.wav` | solo la voce dell'ospite |
 
-`registrazione.wav` è la copia di sicurezza: contiene esattamente quello che è
-successo, pause comprese. Le ultime due servono se vuoi montare a mano: sono
+`podcast.wav` è quello che cerchi quasi sempre: host e ospite uniti, senza i
+secondi di attesa. `registrazione-integrale.wav` è la copia di sicurezza:
+contiene esattamente quello che è successo, pause comprese. Le ultime due servono se vuoi montare a mano: sono
 perfettamente allineate, le apri come due tracce in Audacity, Reaper, Audition o
 quello che usi.
 
@@ -204,11 +211,15 @@ quello che usi.
 > `.wav` è già pronto e lo pubblichi uguale. Se lo vuoi, scaricalo da
 > [ffmpeg.org](https://ffmpeg.org/download.html).
 
-**Non ti piace il ritmo?** Puoi rimontare la stessa puntata quante volte vuoi
-senza registrarla di nuovo. Apri il Prompt dei comandi nella cartella e scrivi:
+**Rimontare a mano.** Doppio clic su **`monta.bat`**: rimonta l'ultima puntata
+registrata. Serve quando il montaggio non è stato scritto (finestra chiusa
+troppo presto) o quando vuoi solo rifarlo.
+
+Per cambiare il ritmo, apri il Prompt dei comandi nella cartella:
 
 ```
-.venv\Scripts\her.exe render sessions\20260826-201500 --max-gap 0.25
+.venv\Scripts\her.exe render --max-gap 0.25              (l'ultima puntata)
+.venv\Scripts\her.exe render sessions\20260826-201500    (una in particolare)
 ```
 
 `--max-gap` è la pausa massima lasciata fra un turno e l'altro: `0.25` è
@@ -216,7 +227,30 @@ serrato, `1.2` è più disteso.
 
 ---
 
-## 9. Regolare l'attesa e la voce
+## 9. Regolare l'ospite (quanto parla, quanto ti interroga)
+
+L'ospite si regola da tre righe del `.env`, senza aprire nessun preset:
+
+```
+HER_LUNGHEZZA=lunga
+HER_DOMANDE=raramente
+HER_INDICAZIONI=
+```
+
+- **`HER_LUNGHEZZA`** — `breve` (2-3 frasi), `media` (4-6), `lunga` (8-12,
+  con esempi e una posizione), `monologo` (anche due o tre minuti). Se ti
+  risponde a monosillabi, è questa la riga da alzare.
+- **`HER_DOMANDE`** — `mai`, `raramente` (default: al massimo una ogni cinque
+  o sei risposte), `spesso`. Se ti rimbalza sempre la palla con «e tu che ne
+  pensi?», mettila su `mai`.
+- **`HER_INDICAZIONI`** — testo libero, scritto come lo diresti a un ospite
+  vero: `sii più ironica`, `non parlare di politica`, `dammi del tu`,
+  `parla più lentamente`. Finisce dritto nelle istruzioni dell'ospite.
+
+Chi è l'ospite (nome, carattere, cosa sa) sta invece nel preset: vedi il
+[passo 10](#10-personalizza-lospite).
+
+---
 
 **Se l'ospite ti interrompe** perché fai delle pause mentre pensi a cosa dire,
 alza `HER_PAUSA` nel file `.env`:
@@ -309,6 +343,8 @@ sostituiti: se ne avevi modificato uno, lo ritrovi lì.
 | Cosa vedi o senti | Cosa fare |
 |---|---|
 | L'ospite prende la parola mentre stai ancora pensando | Alza `HER_PAUSA` nel `.env` (per esempio `2.5`). |
+| Risponde con due parole e ti fa subito una domanda | `HER_LUNGHEZZA=lunga` e `HER_DOMANDE=mai` nel `.env`. |
+| Manca il file montato (`podcast.wav`) | La finestra si è chiusa prima del montaggio: doppio clic su `monta.bat`. |
 | La voce ha l'accento straniero | La pronuncia la impone già `language: it`; l'accento dipende dalla voce: prendine una italiana dalla Voice Library (passo 5). |
 | *"Manca: gemini"*, *"Manca: openai"* o *"tts.voice_id"* | Chiavi non salvate: rileggi i passi 4 e 5. Attenzione agli spazi. |
 | *"trascrizione fallita: manca OPENAI_API_KEY"* | Stai usando un preset su OpenAI: metti `HER_PRESET=gemini` nel `.env`. |

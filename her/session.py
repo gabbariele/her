@@ -65,6 +65,8 @@ class PodcastSession:
         self.dir = Path(out_dir)
         self.text_input = text_input
         self.history: list[dict] = []
+        #: prompt del preset + regole di lunghezza e di domande
+        self.system_prompt = cfg.persona.effective_prompt()
         self.recorder = MultitrackRecorder(self.dir, cfg.audio.sample_rate, wall_clock=text_input)
         self.player = Player(
             cfg.audio.sample_rate,
@@ -117,7 +119,12 @@ class PodcastSession:
         meta = {
             "created": datetime.now().isoformat(timespec="seconds"),
             "sample_rate": self.cfg.audio.sample_rate,
-            "persona": {"name": self.cfg.persona.name, "system_prompt": self.cfg.persona.system_prompt},
+            "persona": {
+                "name": self.cfg.persona.name,
+                "length": self.cfg.persona.length,
+                "questions": self.cfg.persona.questions,
+                "system_prompt": self.system_prompt,
+            },
             "stt": {"provider": self.cfg.stt.provider, "model": self.cfg.stt.model},
             "llm": {"provider": self.cfg.llm.provider, "model": self.cfg.llm.model},
             "tts": {"provider": self.cfg.tts.provider, "model": self.cfg.tts.model,
@@ -139,7 +146,10 @@ class PodcastSession:
 
         _note(f"calibrazione del rumore di fondo ({cfg.vad.calibration_s:g}s): resta in silenzio…")
         time.sleep(cfg.vad.calibration_s + 0.3)
-        _note(f"soglia voce: {self.endpointer.threshold_db:.0f} dBFS · Ctrl-C per chiudere")
+        _note(f"soglia voce: {self.endpointer.threshold_db:.0f} dBFS")
+        print(f"{Ansi.DIM}· premi INVIO quando hai finito la puntata "
+              f"(così il montaggio fa in tempo a scriversi){Ansi.OFF}", flush=True)
+        threading.Thread(target=self._wait_for_enter, name="stop", daemon=True).start()
         self._greet()
         print()
 
@@ -149,6 +159,17 @@ class PodcastSession:
             except queue.Empty:
                 continue
             self._handle_turn(audio, start, end)
+
+    def _wait_for_enter(self) -> None:
+        """Chiusura pulita: Ctrl-C su Windows può ammazzare il processo prima
+        che il montaggio venga scritto, INVIO no."""
+        try:
+            input()
+        except (EOFError, KeyboardInterrupt):
+            return
+        if not self._stop.is_set():
+            _note("chiudo la puntata…")
+            self._stop.set()
 
     def _mic_loop(self) -> None:
         assert self._mic is not None
@@ -255,7 +276,7 @@ class PodcastSession:
         parts: list[str] = []
         try:
             tokens = llm_provider.stream_reply(
-                self.cfg.persona.system_prompt, self.history, self.cfg.llm, notice=_warn
+                self.system_prompt, self.history, self.cfg.llm, notice=_warn
             )
             for sentence in iter_sentences(_tee(tokens, parts)):
                 if self._stop.is_set():

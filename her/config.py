@@ -70,12 +70,92 @@ class TtsConfig:
     speed: float = 1.0
 
 
+#: quanto deve essere lunga una risposta, e quanti token servono per non
+#: troncarla a metà frase
+LENGTH_RULES = {
+    "breve": (
+        "LUNGHEZZA: rispondi in 2 o 3 frasi. Vai dritto al punto.",
+        220,
+    ),
+    "media": (
+        "LUNGHEZZA: sviluppa la risposta in 4-6 frasi. Non limitarti ad accennare: "
+        "porta un esempio concreto o un dettaglio che la regga.",
+        500,
+    ),
+    "lunga": (
+        "LUNGHEZZA: sviluppa la risposta in 8-12 frasi, come farebbe un ospite "
+        "che è lì per raccontare qualcosa. Argomenta, fai almeno un esempio "
+        "concreto, e chiudi dicendo cosa ne pensi. Resta comunque parlato: "
+        "frasi brevi una dietro l'altra, non un saggio letto.",
+        900,
+    ),
+    "monologo": (
+        "LUNGHEZZA: prenditi tutto lo spazio che serve, anche due o tre minuti. "
+        "Racconta, fai esempi, cambia angolazione. Resta parlato: frasi brevi "
+        "una dietro l'altra, non un saggio letto.",
+        1600,
+    ),
+}
+
+#: quanto spesso l'ospite può rimandare la palla al conduttore
+QUESTION_RULES = {
+    "mai": (
+        "DOMANDE: non fare domande al conduttore. Le domande le fa lui, tu rispondi. "
+        "Se una cosa non ti è chiara, chiedi solo il chiarimento indispensabile."
+    ),
+    "raramente": (
+        "DOMANDE: non rimandare la palla al conduttore. Niente «e tu che ne pensi?», "
+        "niente «vuoi che approfondisca?»: se c'è da approfondire, approfondisci. "
+        "Una domanda ci sta solo una volta ogni cinque o sei risposte, e solo se "
+        "nasce davvero dal discorso."
+    ),
+    "spesso": (
+        "DOMANDE: quando è naturale, chiudi rilanciando con una domanda al conduttore."
+    ),
+}
+
+
 @dataclass
 class PersonaConfig:
     name: str = "Ospite"
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     #: battuta di apertura pronunciata a inizio registrazione ("" = nessuna)
     greeting: str = ""
+    #: breve | media | lunga | monologo
+    length: str = "media"
+    #: mai | raramente | spesso
+    questions: str = "raramente"
+    #: indicazioni libere da aggiungere al carattere, senza riscrivere il prompt
+    #: (es. "sii più ironica", "parla più di musica"). Anche da HER_INDICAZIONI.
+    notes: str = ""
+
+    def effective_prompt(self) -> str:
+        """Il prompt del preset più le regole di lunghezza e di domande.
+
+        Tenerle fuori dal testo scritto a mano serve a poterle cambiare dal
+        `.env` senza riscrivere il personaggio.
+        """
+        parts = [self.system_prompt.strip()]
+        if self.notes.strip():
+            parts.append(f"INDICAZIONI PER OGGI: {self.notes.strip()}")
+        if self.length:
+            parts.append(LENGTH_RULES[_valid(self.length, LENGTH_RULES, "persona.length")][0])
+        if self.questions:
+            parts.append(QUESTION_RULES[_valid(self.questions, QUESTION_RULES, "persona.questions")])
+        return "\n\n".join(p for p in parts if p)
+
+    @property
+    def min_output_tokens(self) -> int:
+        if not self.length:
+            return 0
+        return LENGTH_RULES[_valid(self.length, LENGTH_RULES, "persona.length")][1]
+
+
+def _valid(value: str, table: dict, where: str) -> str:
+    key = str(value).strip().lower()
+    if key not in table:
+        raise ValueError(f"{where}: valore «{value}» non valido (usa: {', '.join(table)})")
+    return key
 
 
 @dataclass
@@ -124,6 +204,9 @@ class Config:
         self.vad.frame_ms = self.audio.frame_ms
         check_model(self.stt.provider, self.stt.model, "stt")
         check_model(self.llm.provider, self.llm.model, "llm")
+        # una risposta lunga con pochi token si tronca a metà frase: il tetto
+        # non scende mai sotto quello che la lunghezza richiesta comporta
+        self.llm.max_output_tokens = max(self.llm.max_output_tokens, self.persona.min_output_tokens)
         return self
 
     def to_dict(self) -> dict:

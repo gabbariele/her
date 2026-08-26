@@ -92,6 +92,18 @@ def test_text_session_records_both_tracks(tmp_path, monkeypatch, patched):
     assert np.all(host == 0)                    # in modalità testo il microfono è spento
 
 
+def test_the_persona_rules_reach_the_model(tmp_path, monkeypatch, patched):
+    visti = []
+
+    def _spia(system_prompt, history, cfg, **kw):
+        visti.append(system_prompt)
+        yield "va bene"
+
+    monkeypatch.setattr(session_module.llm_provider, "stream_reply", _spia)
+    _run_text_session(tmp_path, monkeypatch, ["dimmi qualcosa"])
+    assert "LUNGHEZZA:" in visti[0] and "DOMANDE:" in visti[0]
+
+
 def test_history_alternates_and_is_trimmed(tmp_path, monkeypatch, patched):
     sess = _run_text_session(tmp_path, monkeypatch, ["uno", "due", "tre"])
     roles = [m["role"] for m in sess.history]

@@ -10,6 +10,8 @@ from . import __version__
 from .config import (
     DEFAULT_MODELS,
     ELEVEN_KEYS,
+    LENGTH_RULES,
+    QUESTION_RULES,
     GEMINI_KEYS,
     OPENAI_KEYS,
     Config,
@@ -28,6 +30,10 @@ def _overrides(args: argparse.Namespace) -> dict:
                  "tts": {}, "session": {}, "render": {}, "persona": {}}
     if getattr(args, "pausa", None) is not None:
         out["vad"]["silence_ms"] = int(float(args.pausa) * 1000)
+    if getattr(args, "lunghezza", None):
+        out["persona"]["length"] = args.lunghezza
+    if getattr(args, "domande", None):
+        out["persona"]["questions"] = args.domande
     if getattr(args, "voice", None):
         out["tts"]["voice_id"] = args.voice
     if getattr(args, "tts_model", None):
@@ -76,6 +82,16 @@ def _load(args: argparse.Namespace) -> Config:
     if not cfg.tts.voice_id:
         # comodo per chi non vuole toccare i preset: basta HER_VOICE_ID nel .env
         cfg.tts.voice_id = os.environ.get("HER_VOICE_ID", "")
+    # le manopole del carattere si possono girare dal .env, senza aprire i preset
+    if os.environ.get("HER_LUNGHEZZA") and not getattr(args, "lunghezza", None):
+        cfg.persona.length = os.environ["HER_LUNGHEZZA"].strip().lower()
+    if os.environ.get("HER_DOMANDE") and not getattr(args, "domande", None):
+        cfg.persona.questions = os.environ["HER_DOMANDE"].strip().lower()
+    if os.environ.get("HER_INDICAZIONI") and not getattr(args, "indicazioni", None):
+        cfg.persona.notes = os.environ["HER_INDICAZIONI"].strip()
+    if getattr(args, "indicazioni", None):
+        cfg.persona.notes = args.indicazioni
+    cfg.sync()
     pausa = os.environ.get("HER_PAUSA")
     if pausa and getattr(args, "pausa", None) is None:
         try:
@@ -108,7 +124,8 @@ def cmd_check(args: argparse.Namespace) -> int:
           f" (lingua: {cfg.tts.language or 'automatica'})")
     print(f"  Audio {cfg.audio.sample_rate} Hz · attesa prima della risposta: "
           f"{cfg.vad.silence_ms / 1000:.1f}s")
-    print(f"  Ospite: {cfg.persona.name}")
+    print(f"  Ospite: {cfg.persona.name} · risposte: {cfg.persona.length} "
+          f"· domande al conduttore: {cfg.persona.questions}")
 
     needed = {"openai": OPENAI_KEYS, "gemini": GEMINI_KEYS}
     missing = []
@@ -189,9 +206,28 @@ def cmd_record(args: argparse.Namespace) -> int:
     return 0
 
 
+def latest_session(root: str = "sessions") -> Path | None:
+    """L'ultima puntata registrata: è quasi sempre quella che si vuole montare."""
+    base = Path(root)
+    if not base.exists():
+        return None
+    sessions = [d for d in base.iterdir() if d.is_dir() and (d / "host.wav").exists()]
+    if not sessions:
+        return None
+    return max(sessions, key=lambda d: d.stat().st_mtime)
+
+
 def cmd_render(args: argparse.Namespace) -> int:
     cfg = _load(args)
-    session_dir = Path(args.session)
+    if args.session:
+        session_dir = Path(args.session)
+    else:
+        session_dir = latest_session(args.sessions)
+        if session_dir is None:
+            print(f"Nessuna puntata trovata in {args.sessions}/. "
+                  "Indica la cartella: her render sessions\\<nome>", file=sys.stderr)
+            return 1
+        print(f"Ultima puntata: {session_dir}")
     if not (session_dir / "host.wav").exists():
         print(f"{session_dir} non sembra una sessione (manca host.wav).", file=sys.stderr)
         return 1
@@ -203,8 +239,9 @@ def _render(session_dir: Path, cfg: Config) -> int:
     print(f"\nMontato:   {result.wav}  ({_mmss(result.duration)}, tagliati {_mmss(result.saved)} di vuoti)")
     if result.mp3:
         print(f"MP3:       {result.mp3}")
-    print(f"Integrale: {result.full}  ({_mmss(result.raw_duration)}, tutto, non montato)")
+    print(f"Integrale: {result.full}  ({_mmss(result.raw_duration)}, tutto, pause comprese)")
     print(f"Testi:     {result.transcript} · {result.srt}")
+    print("\nDa pubblicare è il file «podcast»: le due voci insieme, senza i vuoti.")
     return 0
 
 
@@ -248,6 +285,12 @@ def build_parser() -> argparse.ArgumentParser:
     def common(p: argparse.ArgumentParser, full: bool = True) -> None:
         p.add_argument("-p", "--preset", help="preset YAML (nome in presets/ o percorso)")
         p.add_argument("--context", help="file di testo da aggiungere al contesto dell'ospite")
+        p.add_argument("--lunghezza", choices=list(LENGTH_RULES),
+                       help="quanto parla l'ospite (default: media)")
+        p.add_argument("--domande", choices=list(QUESTION_RULES),
+                       help="quanto spesso rilancia con una domanda (default: raramente)")
+        p.add_argument("--indicazioni", metavar="TESTO",
+                       help="indicazione libera sul carattere (es. \"sii più ironica\")")
         if full:
             p.add_argument("--voice", help="voice_id ElevenLabs")
             p.add_argument("--tts-model", help="modello ElevenLabs (es. eleven_flash_v2_5)")
@@ -292,7 +335,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_ren = sub.add_parser("render", help="monta una sessione già registrata")
     common(p_ren, full=False)
-    p_ren.add_argument("session", help="cartella della sessione")
+    p_ren.add_argument("session", nargs="?", help="cartella della puntata (default: l'ultima)")
+    p_ren.add_argument("--sessions", default="sessions", help="cartella radice delle puntate")
     p_ren.add_argument("--max-gap", type=float, help="pausa massima fra i turni (s)")
     p_ren.add_argument("--no-mp3", action="store_true")
     p_ren.set_defaults(func=cmd_render)

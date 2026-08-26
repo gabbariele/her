@@ -130,3 +130,52 @@ def test_pause_can_be_set_from_command_line_and_env(monkeypatch):
 def test_presets_speak_italian_to_elevenlabs():
     for name in ("gemini", "intervista", "veloce", "esperto-tech"):
         assert load_config(name).tts.language == "it", name
+
+
+def test_persona_rules_are_appended_to_the_prompt():
+    cfg = load_config("gemini")
+    prompt = cfg.persona.effective_prompt()
+    assert cfg.persona.system_prompt.strip() in prompt
+    assert "LUNGHEZZA:" in prompt and "8-12 frasi" in prompt
+    assert "DOMANDE:" in prompt and "non rimandare la palla" in prompt.lower()
+
+
+def test_short_and_talkative_are_really_different():
+    breve = load_config("gemini", {"persona": {"length": "breve", "questions": "spesso"}})
+    lungo = load_config("gemini", {"persona": {"length": "monologo", "questions": "mai"}})
+    assert "2 o 3 frasi" in breve.persona.effective_prompt()
+    assert "rilanciando con una domanda" in breve.persona.effective_prompt()
+    assert "due o tre minuti" in lungo.persona.effective_prompt()
+    assert "non fare domande" in lungo.persona.effective_prompt().lower()
+
+
+def test_token_ceiling_never_truncates_the_requested_length():
+    cfg = load_config("gemini", {"persona": {"length": "monologo"}, "llm": {"max_output_tokens": 100}})
+    assert cfg.llm.max_output_tokens >= 1600          # alzato al minimo che serve
+    corto = load_config("gemini", {"persona": {"length": "breve"}, "llm": {"max_output_tokens": 4000}})
+    assert corto.llm.max_output_tokens == 4000        # una scelta esplicita più alta resta
+
+
+def test_invalid_length_says_what_is_allowed():
+    with pytest.raises(ValueError, match="breve, media, lunga, monologo"):
+        load_config("gemini", {"persona": {"length": "chilometrica"}})
+
+
+def test_length_and_questions_from_the_env(monkeypatch):
+    from her.cli import _load
+
+    class Args:
+        preset = "gemini"
+        context = None
+        pausa = None
+        lunghezza = None
+        domande = None
+
+    monkeypatch.setenv("HER_LUNGHEZZA", "monologo")
+    monkeypatch.setenv("HER_DOMANDE", "mai")
+    cfg = _load(Args())
+    assert cfg.persona.length == "monologo" and cfg.persona.questions == "mai"
+    assert cfg.llm.max_output_tokens >= 1600
+
+    Args.lunghezza = "breve"                          # la riga di comando vince sul .env
+    assert _load(Args()).persona.length == "breve"
