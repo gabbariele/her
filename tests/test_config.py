@@ -76,3 +76,33 @@ def test_placeholder_keys_count_as_missing(monkeypatch):
     assert api_key("HER_TEST_KEY") is None
     monkeypatch.setenv("HER_TEST_KEY", "  sk-vera123  ")
     assert api_key("HER_TEST_KEY") == "sk-vera123"
+
+
+def test_mixing_provider_and_model_is_caught_early():
+    import pytest
+
+    with pytest.raises(ValueError, match="è di openai"):
+        load_config(overrides={"stt": {"provider": "gemini"}})       # modello di default = gpt-4o-transcribe
+    with pytest.raises(ValueError, match="è di gemini"):
+        load_config(overrides={"llm": {"model": "gemini-3.5-flash"}})  # provider di default = openai
+
+
+def test_gemini_preset_is_coherent():
+    cfg = load_config("gemini")
+    assert cfg.stt.provider == "gemini" and cfg.stt.model.startswith("gemini")
+    assert cfg.llm.provider == "gemini" and cfg.llm.model.startswith("gemini")
+    assert cfg.llm.thinking in ("off", False)
+
+
+def test_switching_provider_switches_the_model_too():
+    from her.cli import _overrides
+
+    class Args:
+        stt = "gemini"
+        llm = "gemini"
+        stt_model = None
+        llm_model = "gemini-2.5-flash"
+
+    out = _overrides(Args())
+    assert out["stt"]["model"].startswith("gemini")     # scelto per noi
+    assert out["llm"]["model"] == "gemini-2.5-flash"    # quello chiesto esplicitamente

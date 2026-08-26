@@ -14,7 +14,8 @@ testo. In tutto una decina di minuti, la prima volta.
 7. [La prima registrazione](#7-la-prima-registrazione)
 8. [Dove finisce la puntata](#8-dove-finisce-la-puntata)
 9. [Personalizza l'ospite](#9-personalizza-lospite)
-10. [Se qualcosa non va](#10-se-qualcosa-non-va)
+10. [Aggiornare all'ultima versione](#10-aggiornare-allultima-versione)
+11. [Se qualcosa non va](#11-se-qualcosa-non-va)
 
 ---
 
@@ -25,13 +26,19 @@ con i servizi. Sono personali: non condividerle e non metterle in giro.
 
 | Serve per | Dove la prendi |
 |---|---|
-| Capire quello che dici + le risposte dell'ospite | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+| Capire quello che dici + le risposte dell'ospite | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) (Google Gemini) |
 | La voce dell'ospite | [elevenlabs.io](https://elevenlabs.io) → il tuo profilo → *API Keys* |
 
+Gemini è la scelta predefinita perché costa molto meno: trascrivere un'ora di
+conversazione sta nell'ordine dei centesimi. In alternativa puoi usare OpenAI
+([platform.openai.com/api-keys](https://platform.openai.com/api-keys)): il
+programma li supporta entrambi e si cambia con una riga, vedi il
+[passo 9](#9-personalizza-lospite).
+
 > **Attenzione a un equivoco comune:** l'abbonamento a ChatGPT Plus **non** dà
-> accesso alle API. Sono due prodotti separati, con due portafogli separati. Su
-> `platform.openai.com` devi avere un credito attivo (bastano 5-10 $ per molte
-> puntate). Se ci hai già lavorato, sei a posto.
+> accesso alle API di OpenAI, e allo stesso modo l'app Gemini non dà accesso
+> alle API di Google. Sono prodotti separati, con portafogli separati: la chiave
+> va presa sui siti qui sopra.
 
 **Delle cuffie.** Non sono obbligatorie ma cambiano la vita: senza, il microfono
 risente la voce dell'ospite e te la ritrovi dentro la tua traccia.
@@ -108,14 +115,18 @@ spunta **Elementi nascosti**.)
 Incolla ogni chiave subito dopo il segno `=`, senza spazi e senza virgolette:
 
 ```
-OPENAI_API_KEY=sk-proj-lamiachiaveveraincollataqui
+HER_PRESET=gemini
 ELEVENLABS_API_KEY=sk_lamiachiaveelevenlabs
 HER_VOICE_ID=
-GEMINI_API_KEY=
+GEMINI_API_KEY=AIzaSy-lamiachiavegoogle
+OPENAI_API_KEY=
 ```
 
-`HER_VOICE_ID` lo riempiamo al passo dopo. `GEMINI_API_KEY` puoi lasciarlo
-vuoto: serve solo se un giorno vuoi usare Gemini al posto di OpenAI.
+`HER_VOICE_ID` lo riempiamo al passo dopo. `OPENAI_API_KEY` lascialo vuoto se
+usi Gemini: le righe vuote non danno nessun fastidio.
+
+> `HER_PRESET` è la riga che decide chi è l'ospite e quali modelli usa.
+> Lasciala su `gemini` per la configurazione economica.
 
 **Salva** (Cmd+S o Ctrl+S) e chiudi.
 
@@ -161,15 +172,20 @@ Deve uscire una cosa così:
 
 ```
 Chiavi API:
-  OK  OpenAI       …a1b2
-  --  Gemini       assente
+  --  OpenAI       assente
+  OK  Gemini       …a1b2
   OK  ElevenLabs   …c3d4
+
+Configurazione attiva:
+  STT   gemini/gemini-2.5-flash-lite (lingua: it)
+  LLM   gemini/gemini-3.5-flash-lite, thinking: off
+  TTS   elevenlabs/eleven_turbo_v2_5 voce: 21m00Tcm...
 
 Tutto pronto: `her record`
 ```
 
-`Gemini assente` va benissimo, è facoltativo. Se invece leggi
-`Manca: openai, tts.voice_id`, torna al passo 4 e 5: qualcosa non è stato
+`OpenAI assente` va benissimo se usi Gemini. Se invece leggi
+`Manca: gemini, tts.voice_id`, torna al passo 4 e 5: qualcosa non è stato
 salvato.
 
 ---
@@ -265,10 +281,26 @@ Cambia quelle righe e hai un altro ospite. Le regole che funzionano meglio:
   malissimo.
 - **Digli chi è e cosa sa**, e digli di ammettere quando non sa una cosa.
 
-Nella cartella ci sono altri due esempi già pronti: `esperto-tech.yaml` (un
-ospite specializzato) e `veloce.yaml` (risposte cortissime e latenza più bassa).
-Per usarne uno diverso, apri `registra.command` con TextEdit e cambia
-`intervista` col nome che vuoi.
+Nella cartella ci sono altri esempi già pronti: `gemini.yaml` (quello
+economico, predefinito), `intervista.yaml` (lo stesso ospite ma su OpenAI),
+`esperto-tech.yaml` (un ospite specializzato) e `veloce.yaml` (risposte
+cortissime e latenza minima). **Per cambiare ospite ti basta cambiare la riga
+`HER_PRESET=` nel file `.env`.**
+
+### Cambiare modello (o spendere ancora meno)
+
+Dentro il preset, le righe `stt:` e `llm:` dicono quale modello ascolta e quale
+risponde. Nel file `gemini.yaml` sono commentate le alternative, dalla più
+economica alla migliore. Per vedere quali modelli la tua chiave può davvero
+usare — i nomi cambiano spesso — fai **doppio clic su `modelli.command`**
+(macOS) o **`modelli.bat`** (Windows).
+
+Poi incolli il nome che preferisci nel preset, alla riga `model:`.
+
+Un'altra riga che vale la pena conoscere è `thinking:`. I modelli Gemini
+recenti, se lasciati liberi, "ragionano" prima di rispondere: per una battuta di
+tre frasi è tempo e denaro buttati, quindi nel preset è impostata su `off`. Se
+un giorno vuoi risposte più meditate, mettila su `low` o `medium`.
 
 **Per il materiale della singola puntata** (una scaletta, degli appunti, un
 articolo) non serve toccare i preset: metti il testo in un file, per esempio
@@ -277,11 +309,26 @@ articolo) non serve toccare i preset: metti il testo in un file, per esempio
 
 ---
 
-## 10. Se qualcosa non va
+## 10. Aggiornare all'ultima versione
+
+Fai **doppio clic su `aggiorna.command`** (macOS) o **`aggiorna.bat`**
+(Windows). Scarica la versione nuova e sostituisce solo i file del programma.
+
+**Non tocca mai** il tuo `.env` (le chiavi) né la cartella `sessions` (le tue
+puntate). I preset vengono copiati in `presets-backup/` prima di essere
+sostituiti: se ne avevi modificato uno, lo ritrovi lì e puoi ricopiartelo.
+
+---
+
+## 11. Se qualcosa non va
 
 | Cosa vedi o senti | Cosa fare |
 |---|---|
-| *"Manca: openai"* o *"tts.voice_id"* | Chiavi non salvate: rileggi il passo 4 e 5. Attenzione agli spazi prima e dopo la chiave. |
+| *"Manca: gemini"*, *"Manca: openai"* o *"tts.voice_id"* | Chiavi non salvate: rileggi il passo 4 e 5. Attenzione agli spazi prima e dopo la chiave. |
+| *"trascrizione fallita: manca OPENAI_API_KEY"* | Stai usando un preset su OpenAI: metti `HER_PRESET=gemini` nel file `.env`. |
+| *"Gemini LLM 404"* o *"modello non trovato"* | Quel nome di modello non esiste più o la tua chiave non ce l'ha: `./her.sh models` mostra quelli veri, poi incollane uno nel preset. |
+| *"429"* / *"RESOURCE_EXHAUSTED"* su Gemini | Hai finito la quota gratuita: attiva la fatturazione su Google AI Studio, oppure passa a un modello `-lite`. |
+| L'ospite non risponde e leggi *"risposta vuota"* | Il modello ha consumato tutto in ragionamento: nel preset metti `thinking: off` sotto `llm:`, o alza `max_output_tokens`. |
 | *"Errore: sounddevice non disponibile"* (Linux) | `sudo apt install libportaudio2` e rilancia. |
 | Non registra niente, non reagisce quando parli | Permesso microfono negato (passo 7), o è selezionato il microfono sbagliato: `./her.sh devices` mostra quali ci sono. |
 | Parte da solo anche se stai zitto | Stanza rumorosa: nel preset aggiungi in fondo `vad:` e sotto `  threshold_db: 15`. |

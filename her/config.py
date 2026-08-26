@@ -34,6 +34,9 @@ class SttConfig:
     language: str = "it"
     #: suggerimenti di vocabolario (nomi propri, sigle) per ridurre gli errori
     hint: str = ""
+    #: solo Gemini: off | low | medium | high | auto | numero di token.
+    #: per trascrivere non serve ragionare, e ragionare costa tempo e soldi
+    thinking: str = "off"
 
 
 @dataclass
@@ -44,6 +47,9 @@ class LlmConfig:
     max_output_tokens: int = 400
     #: quanti turni precedenti tenere nel contesto
     history_turns: int = 12
+    #: solo Gemini: off | low | medium | high | auto | numero di token.
+    #: "off" tiene la battuta pronta prima; alzalo se vuoi risposte più meditate
+    thinking: str = "off"
 
 
 @dataclass
@@ -109,13 +115,47 @@ class Config:
     render: RenderConfig = field(default_factory=RenderConfig)
 
     def sync(self) -> "Config":
-        """Allinea i parametri condivisi fra sezioni diverse."""
+        """Allinea i parametri condivisi e intercetta gli abbinamenti impossibili."""
         self.vad.sample_rate = self.audio.sample_rate
         self.vad.frame_ms = self.audio.frame_ms
+        check_model(self.stt.provider, self.stt.model, "stt")
+        check_model(self.llm.provider, self.llm.model, "llm")
         return self
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+#: modello sensato per ogni combinazione provider/sezione, usato quando si
+#: cambia provider da riga di comando senza indicare anche il modello
+DEFAULT_MODELS = {
+    ("openai", "stt"): "gpt-4o-transcribe",
+    ("gemini", "stt"): "gemini-2.5-flash-lite",
+    ("openai", "llm"): "gpt-4o",
+    ("gemini", "llm"): "gemini-3.5-flash-lite",
+}
+
+
+#: prefissi tipici di ogni provider, per accorgersi degli abbinamenti sbagliati
+_MODEL_PREFIXES = {
+    "openai": ("gpt-", "o1", "o3", "o4", "whisper", "chatgpt"),
+    "gemini": ("gemini", "models/gemini", "learnlm", "gemma"),
+}
+
+
+def check_model(provider: str, model: str, section: str) -> None:
+    """Un modello OpenAI con provider Gemini (o viceversa) darebbe un 404 oscuro."""
+    other = "gemini" if provider == "openai" else "openai"
+    if provider not in _MODEL_PREFIXES or other not in _MODEL_PREFIXES:
+        return
+    name = (model or "").strip().lower()
+    if not name or name.startswith(_MODEL_PREFIXES[provider]):
+        return
+    if name.startswith(_MODEL_PREFIXES[other]):
+        raise ValueError(
+            f"{section}: il modello «{model}» è di {other}, ma {section}.provider è «{provider}». "
+            f"Scegline uno di {provider} (l'elenco con `her models --provider {provider}`)."
+        )
 
 
 def _apply(obj: Any, data: dict, path: str = "") -> None:

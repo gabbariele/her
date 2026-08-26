@@ -70,8 +70,9 @@ pip install -e ".[audio,dev]"
 
 Oppure `./setup.sh` (macOS/Linux) o `setup.bat` (Windows), che fanno lo stesso
 senza chiedere niente. Per chi non usa il terminale ci sono i lanciatori a
-doppio clic: `setup.command`, `voci.command`, `registra.command` su macOS,
-`setup.bat`, `voci.bat`, `verifica.bat`, `registra.bat` su Windows.
+doppio clic: `setup`, `voci`, `modelli`, `registra` e `aggiorna` (`.command` su
+macOS, `.bat` su Windows, più `verifica.bat`). `aggiorna` riscarica l'ultima
+versione lasciando intatti `.env` e `sessions/`.
 
 Su Linux serve PortAudio (`sudo apt install libportaudio2`); su macOS e Windows
 `sounddevice` si porta dietro tutto. Per l'export MP3 serve `ffmpeg` nel PATH
@@ -134,7 +135,28 @@ dell'ospite.
 
 Ogni valore del preset si può scavalcare da riga di comando
 (`--llm gemini --llm-model gemini-2.5-flash --stt gemini`), e tutta la
-configurazione è documentata in `her/config.py`.
+configurazione è documentata in `her/config.py`. Il preset attivo si può fissare
+anche con `HER_PRESET` nel `.env`, così i lanciatori a doppio clic lo seguono.
+
+### Scegliere provider e modelli
+
+| | OpenAI | Gemini |
+|---|---|---|
+| Trascrizione | `gpt-4o-transcribe` | `gemini-2.5-flash-lite`, o `gemini-3.5-transcribe` (dedicato) |
+| Risposte | `gpt-4o`, `gpt-4o-mini` | `gemini-3.5-flash-lite`, `gemini-2.5-flash-lite` |
+
+Il preset `gemini` mette entrambe le gambe su Gemini: è la configurazione più
+economica e non richiede nessuna chiave OpenAI. Si possono anche mescolare
+(Gemini per l'ascolto, OpenAI per la testa): sono due sezioni indipendenti.
+
+I nomi dei modelli cambiano in fretta, quindi non fidarti di questa tabella:
+**`her models`** chiede al provider cosa offre davvero la tua chiave.
+
+Sui modelli Gemini recenti c'è anche `thinking:` (`off`, `low`, `medium`,
+`high`, `auto` o un numero di token). Per battute da tre frasi il ragionamento
+è latenza e costo sprecati: nei preset è `off`. Se una famiglia di modelli non
+accetta quel campo, la richiesta viene ripetuta una volta senza — non serve che
+te ne occupi tu.
 
 ## Il montaggio
 
@@ -228,7 +250,7 @@ her/
 ├── render.py        montaggio, trascrizione, sottotitoli
 ├── text.py          pulizia del testo e taglio in frasi
 ├── audio/           microfono, VAD, riproduzione, registratore multitraccia, WAV
-└── providers/       openai, gemini, elevenlabs
+└── providers/       openai, gemini, elevenlabs (+ elenco dei modelli)
 ```
 
 Il `voice_id` si può mettere nel preset oppure, più comodo, in `HER_VOICE_ID`

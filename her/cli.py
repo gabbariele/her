@@ -8,6 +8,7 @@ from pathlib import Path
 
 from . import __version__
 from .config import (
+    DEFAULT_MODELS,
     ELEVEN_KEYS,
     GEMINI_KEYS,
     OPENAI_KEYS,
@@ -28,14 +29,17 @@ def _overrides(args: argparse.Namespace) -> dict:
         out["tts"]["voice_id"] = args.voice
     if getattr(args, "tts_model", None):
         out["tts"]["model"] = args.tts_model
-    if getattr(args, "llm", None):
-        out["llm"]["provider"] = args.llm
-    if getattr(args, "llm_model", None):
-        out["llm"]["model"] = args.llm_model
-    if getattr(args, "stt", None):
-        out["stt"]["provider"] = args.stt
-    if getattr(args, "stt_model", None):
-        out["stt"]["model"] = args.stt_model
+    for section in ("llm", "stt"):
+        provider = getattr(args, section, None)
+        model = getattr(args, f"{section}_model", None)
+        if provider:
+            out[section]["provider"] = provider
+            # cambiare provider senza dire quale modello: ne scegliamo uno sensato,
+            # altrimenti resterebbe quello dell'altro provider e la chiamata fallirebbe
+            if not model:
+                out[section]["model"] = DEFAULT_MODELS[(provider, section)]
+        if model:
+            out[section]["model"] = model
     if getattr(args, "input_device", None) is not None:
         out["audio"]["input_device"] = _device(args.input_device)
     if getattr(args, "output_device", None) is not None:
@@ -59,7 +63,8 @@ def _device(value: str):
 
 
 def _load(args: argparse.Namespace) -> Config:
-    cfg = load_config(getattr(args, "preset", None), _overrides(args))
+    preset = getattr(args, "preset", None) or os.environ.get("HER_PRESET") or None
+    cfg = load_config(preset, _overrides(args))
     if not cfg.tts.voice_id:
         # comodo per chi non vuole toccare i preset: basta HER_VOICE_ID nel .env
         cfg.tts.voice_id = os.environ.get("HER_VOICE_ID", "")
@@ -82,8 +87,9 @@ def cmd_check(args: argparse.Namespace) -> int:
     for name, key in rows:
         print(f"  {'OK ' if key else '-- '} {name:<12} {('…' + key[-4:]) if key else 'assente'}")
     print("\nConfigurazione attiva:")
+    thinking = f", thinking: {cfg.llm.thinking}" if cfg.llm.provider == "gemini" else ""
     print(f"  STT   {cfg.stt.provider}/{cfg.stt.model} (lingua: {cfg.stt.language})")
-    print(f"  LLM   {cfg.llm.provider}/{cfg.llm.model}")
+    print(f"  LLM   {cfg.llm.provider}/{cfg.llm.model}{thinking}")
     print(f"  TTS   {cfg.tts.provider}/{cfg.tts.model} voce: {cfg.tts.voice_id or 'NON IMPOSTATA'}")
     print(f"  Audio {cfg.audio.sample_rate} Hz, frame {cfg.audio.frame_ms} ms")
     print(f"  Ospite: {cfg.persona.name}")
@@ -183,6 +189,27 @@ def _render(session_dir: Path, cfg: Config) -> int:
     return 0
 
 
+def cmd_models(args: argparse.Namespace) -> int:
+    """Cosa offre davvero la tua chiave: i nomi dei modelli cambiano spesso."""
+    from .providers.models import list_models
+
+    cfg = _load(args)
+    provider = args.provider or cfg.llm.provider
+    models = list_models(provider)
+    needle = (args.search or "").lower()
+    shown = 0
+    for model in models:
+        if not model["usable"]:
+            continue
+        if needle and needle not in model["id"].lower():
+            continue
+        shown += 1
+        print(f"  {model['id']:<42} {model['name']}".rstrip())
+    print(f"\n{shown} modelli utilizzabili su {provider}.")
+    print("Usa il nome con  --llm-model <nome>  /  --stt-model <nome>, o mettilo nel preset.")
+    return 0
+
+
 def cmd_presets(args: argparse.Namespace) -> int:
     for path in sorted(PRESET_DIR.glob("*.yaml")):
         print(f"  {path.stem:<16} {path}")
@@ -249,6 +276,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_ren.add_argument("--no-mp3", action="store_true")
     p_ren.set_defaults(func=cmd_render)
 
+    p_mod = sub.add_parser("models", help="elenca i modelli disponibili con la tua chiave")
+    common(p_mod)
+    p_mod.add_argument("--provider", choices=["openai", "gemini"], help="default: quello del preset")
+    p_mod.add_argument("--search", help="filtra per nome")
+    p_mod.set_defaults(func=cmd_models)
+
     p_pre = sub.add_parser("presets", help="elenca i preset disponibili")
     p_pre.set_defaults(func=cmd_presets)
     return parser
@@ -265,12 +298,14 @@ def main(argv: list[str] | None = None) -> int:
             setattr(session_module.Ansi, attr, "")
     from .audio.devices import AudioUnavailable
     from .providers.llm import LlmError
+    from .providers.models import ModelsError
     from .providers.stt import SttError
     from .providers.tts import TtsError
 
     try:
         return args.func(args)
-    except (AudioUnavailable, SttError, LlmError, TtsError, FileNotFoundError, ValueError) as exc:
+    except (AudioUnavailable, SttError, LlmError, TtsError, ModelsError,
+            FileNotFoundError, ValueError) as exc:
         print(f"Errore: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
