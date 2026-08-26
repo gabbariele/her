@@ -1,0 +1,30 @@
+# Configurazione a latenza minima: risposte corte e modelli "flash".
+# Perde qualcosa in qualità, ma la voce parte in meno di un secondo e mezzo.
+persona:
+  name: "Eco"
+  greeting: ""
+  system_prompt: |
+    Sei l'ospite di un podcast. Rispondi in italiano parlato, con UNA o DUE
+    frasi al massimo, mai più lunghe di quindici parole ciascuna. Niente
+    elenchi, niente markdown. Reagisci come in una chiacchierata al bar.
+
+llm:
+  provider: openai
+  model: gpt-4o-mini
+  temperature: 0.9
+  max_output_tokens: 120
+
+stt:
+  provider: openai
+  model: gpt-4o-mini-transcribe
+  language: it
+
+tts:
+  model: eleven_flash_v2_5
+  optimize_streaming_latency: 4
+
+vad:
+  silence_ms: 550
+
+render:
+  max_gap_s: 0.3

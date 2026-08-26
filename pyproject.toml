@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "her"
+version = "0.1.0"
+description = "Registra podcast conversando in tempo reale con un ospite AI (STT -> LLM -> TTS, multitraccia)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "httpx>=0.27",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+audio = ["sounddevice>=0.4.6"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+her = "her.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["her*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

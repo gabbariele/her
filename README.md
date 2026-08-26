@@ -1,0 +1,231 @@
+# her
+
+Registra podcast **parlando davvero** con un ospite AI: tu parli al microfono,
+lui ti capisce, ti risponde con la voce che hai scelto, e tutto finisce
+registrato su due tracce separate. Alla fine i tempi morti vengono tagliati da
+soli e ti ritrovi la puntata montata, con trascrizione e sottotitoli.
+
+Sì: **si può fare**, e con le API che hai già (OpenAI, Gemini, ElevenLabs) non
+serve altro. Questa è l'implementazione.
+
+---
+
+## Come funziona
+
+```
+microfono ──► VAD ──► STT ──────► LLM ──────► TTS ────────► altoparlanti
+ (24 kHz)   (capisce   (OpenAI    (contesto    (ElevenLabs   (in streaming)
+             quando     o Gemini)  preimpostato) streaming)
+             smetti
+             di parlare)
+    │                                                            │
+    └────────► host.wav ◄── stessa timeline ──► guest.wav ◄──────┘
+                            events.jsonl
+                                 │
+                                 ▼
+                    her render ──► podcast.wav + .mp3
+                                   transcript.md + .srt
+```
+
+Tre scelte che fanno la differenza:
+
+1. **Endpointing automatico.** Non c'è nessun tasto da premere: un VAD a soglia
+   adattiva capisce quando hai finito la frase (700 ms di silenzio, regolabile)
+   e solo allora manda il turno alla trascrizione.
+2. **Tutto in streaming, a cascata.** Appena l'LLM ha finito la *prima frase*,
+   quella frase è già in sintesi mentre il modello scrive la seconda. È il
+   motivo per cui la voce parte in 1–2 secondi invece che in 6–8.
+3. **Registrazione multitraccia.** La tua voce e quella dell'ospite finiscono su
+   due file separati e sincronizzati, più una timeline dei turni. Il montaggio
+   non deve indovinare dove sono i silenzi: li conosce già.
+
+### Quanto si aspetta davvero
+
+Latenza tipica dalla fine della tua frase alla prima sillaba dell'ospite:
+
+| pezzo | `gpt-4o` + `eleven_turbo` | preset `veloce` |
+|---|---|---|
+| silenzio di fine turno | 0,7 s | 0,55 s |
+| trascrizione | 0,5–1,2 s | 0,3–0,6 s |
+| primo token dell'LLM | 0,4–1,0 s | 0,2–0,5 s |
+| primo audio dal TTS | 0,3–0,8 s | 0,15–0,4 s |
+| **totale percepito** | **~2–3 s** | **~1,2–2 s** |
+
+E comunque: quei buchi **spariscono nel montaggio**, che è esattamente il punto
+di partenza da cui sei partito.
+
+---
+
+## Installazione
+
+```bash
+git clone <questo-repo> && cd her
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[audio,dev]"
+```
+
+Su Linux serve PortAudio (`sudo apt install libportaudio2`); su macOS e Windows
+`sounddevice` si porta dietro tutto. Per l'export MP3 serve `ffmpeg` nel PATH
+(senza, ti resta comunque il WAV).
+
+Poi le chiavi:
+
+```bash
+cp .env.example .env
+# e dentro: OPENAI_API_KEY, ELEVENLABS_API_KEY, eventualmente GEMINI_API_KEY
+```
+
+## Primi cinque minuti
+
+```bash
+her check                       # chiavi e configurazione a posto?
+her devices                     # quale microfono userà
+her voices                      # le tue voci ElevenLabs, con gli id
+her say "Ciao, sono il tuo ospite" --voice <voice_id>   # senti come suona
+her record --preset intervista --voice <voice_id>       # si registra
+```
+
+Parla. Quando smetti, dopo un attimo l'ospite risponde. `Ctrl-C` chiude la
+puntata e la monta:
+
+```
+Montato: sessions/20260826-201500/podcast.wav  (14.2s, tagliati 41.6s di vuoti)
+MP3:     sessions/20260826-201500/podcast.mp3
+Testi:   .../transcript.md · .../transcript.srt
+```
+
+Non hai il microfono a portata (o vuoi solo provare il contesto)?
+`her record --preset intervista --voice <id> --text`: scrivi invece di parlare,
+la voce e la registrazione funzionano uguale.
+
+## Il contesto preimpostato
+
+È un file YAML in `presets/`. Ne trovi tre già pronti — `intervista`,
+`esperto-tech`, `veloce` — e ne copi uno per farti il tuo:
+
+```yaml
+persona:
+  name: "Nova"
+  greeting: "Ciao, eccomi. Quando vuoi partiamo."
+  system_prompt: |
+    Sei Nova, ospite di un podcast italiano, in diretta con il conduttore.
+    Italiano parlato, 3-4 frasi al massimo, niente elenchi né markdown:
+    tutto quello che scrivi viene letto ad alta voce.
+tts:
+  voice_id: "..."          # da `her voices`
+  model: eleven_turbo_v2_5
+llm:
+  provider: openai         # oppure gemini
+  model: gpt-4o
+```
+
+Per il materiale della puntata (una scaletta, delle note, un documento) non
+serve toccare il preset: `--context note-puntata.md` lo appende al contesto
+dell'ospite.
+
+Ogni valore del preset si può scavalcare da riga di comando
+(`--llm gemini --llm-model gemini-2.5-flash --stt gemini`), e tutta la
+configurazione è documentata in `her/config.py`.
+
+## Il montaggio
+
+`her render sessions/<nome>` rifà il montaggio quante volte vuoi, senza
+ritoccare le tracce originali:
+
+```bash
+her render sessions/20260826-201500 --max-gap 0.25   # ritmo serrato
+her render sessions/20260826-201500 --max-gap 1.2    # più respiro
+```
+
+Cosa fa: prende ogni turno dalla sua traccia, li rimette in fila comprimendo le
+pause a `max_gap_s`, tiene le sovrapposizioni vere (quando interrompi l'ospite),
+mette un fade di 12 ms su ogni giunta per non sentire i click, normalizza a
+−1 dBFS ed esporta WAV + MP3 + `transcript.md` + `transcript.srt`.
+
+Se preferisci montare a mano, hai già tutto: `host.wav` e `guest.wav` sono
+allineati campione per campione, quindi li importi come due tracce in Reaper,
+Audition o Audacity e sei a casa.
+
+## Cosa trovi in una sessione
+
+```
+sessions/20260826-201500/
+├── host.wav        la tua voce, dall'inizio alla fine
+├── guest.wav       l'ospite, in silenzio quando non parla, perfettamente allineato
+├── events.jsonl    un turno per riga: chi, da quando a quando, cosa ha detto
+├── session.json    modelli, voce, persona, durata
+├── podcast.wav     il montato
+├── podcast.mp3
+├── transcript.md
+└── transcript.srt
+```
+
+## Consigli pratici
+
+- **Cuffie.** Con gli altoparlanti il microfono risente l'ospite e la sua voce
+  finisce dentro `host.wav`. Per questo `half_duplex` è attivo di default: il
+  microfono resta chiuso mentre l'ospite parla (ma continua a registrare).
+- **Interromperlo.** Con le cuffie puoi usare `--barge-in`: parli sopra
+  l'ospite e lui si zittisce a metà frase. In cuffia è naturalissimo, sugli
+  altoparlanti innesca un loop.
+- **Se ti taglia le frasi** perché fai pause lunghe, alza `vad.silence_ms` a
+  900–1100. Se invece è lento a partire, scendi a 500.
+- **Se parte da solo** in una stanza rumorosa, alza `vad.threshold_db` da 10 a
+  14–16 dB. La soglia effettiva te la stampa a inizio sessione.
+- **Risposte troppo lunghe** sono un problema di prompt, non di codice: metti
+  nel `system_prompt` un tetto esplicito di frasi. È già così nei preset.
+- **Nomi propri sbagliati** nella trascrizione: `stt.hint` accetta un elenco di
+  termini ricorrenti (nomi, sigle, marchi) e li fa riconoscere molto meglio.
+
+## Costi, per farsi un'idea
+
+Per ogni minuto di conversazione paghi tre pezzi: la trascrizione (frazioni di
+centesimo), l'LLM (pochi centesimi con `gpt-4o`, molto meno con i modelli
+`mini`/`flash`) e il TTS, che è la voce grossa della spesa. Un'ora di puntata
+sta nell'ordine di qualche euro, dominata da ElevenLabs e dal suo piano.
+I listini cambiano spesso: guardali sui rispettivi siti prima di fare i conti.
+
+## Perché questa architettura e non l'API "realtime"
+
+Esistono due alternative che vanno sotto il secondo di latenza:
+
+- **OpenAI Realtime API** (voce-a-voce, un solo websocket): più veloce, ma la
+  voce è la loro — la voce ElevenLabs che hai scelto non la puoi usare.
+- **ElevenLabs Agents**: LLM + le loro voci, latenza intorno al secondo, ma il
+  controllo su cosa succede a ogni turno è molto minore.
+
+Qui la cascata STT → LLM → TTS costa qualche secondo in più, e in cambio dà: la
+voce che vuoi, il modello che vuoi (puoi mescolare — Gemini per l'ascolto,
+OpenAI per la testa), il testo di ogni turno sul disco, e soprattutto la
+registrazione multitraccia pulita. Per un podcast, dove i vuoti li tagli
+comunque in post, è lo scambio giusto. E l'interfaccia dei provider sta tutta in
+`her/providers/`: se domani vuoi provare il realtime, cambi un file.
+
+## Sviluppo
+
+```bash
+pytest -q        # 33 test, nessuna rete e nessuna scheda audio richiesta
+```
+
+I test coprono l'endpointing del VAD, il taglio in frasi per lo streaming, la
+sincronia delle due tracce e la matematica del montaggio; `tests/test_session.py`
+fa girare una sessione intera con provider finti.
+
+```
+her/
+├── cli.py           comandi
+├── config.py        default + preset + override
+├── session.py       il loop: ascolta, trascrivi, rispondi, registra
+├── render.py        montaggio, trascrizione, sottotitoli
+├── text.py          pulizia del testo e taglio in frasi
+├── audio/           microfono, VAD, riproduzione, registratore multitraccia, WAV
+└── providers/       openai, gemini, elevenlabs
+```
+
+## Limiti noti
+
+- Un solo conduttore e un solo ospite (una traccia per parte).
+- L'ospite non ti interrompe mai di sua iniziativa: parla solo quando hai finito.
+- Il VAD è a energia: in una stanza molto rumorosa, o con il microfono del
+  portatile a mezzo metro, va tarato a mano.
+- Niente interfaccia grafica: è un programma da terminale.

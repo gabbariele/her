@@ -1,0 +1,4 @@
+numpy>=1.24
+httpx>=0.27
+PyYAML>=6.0
+sounddevice>=0.4.6   # solo per registrare/riprodurre in tempo reale (non serve per `her render`)

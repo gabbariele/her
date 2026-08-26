@@ -1,0 +1,278 @@
+"""Interfaccia a riga di comando di `her`."""
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+from pathlib import Path
+
+from . import __version__
+from .config import (
+    ELEVEN_KEYS,
+    GEMINI_KEYS,
+    OPENAI_KEYS,
+    Config,
+    api_key,
+    load_config,
+    load_env,
+)
+from .render import render_session
+from .session import PodcastSession, new_session_dir
+
+PRESET_DIR = Path(__file__).resolve().parent.parent / "presets"
+
+
+def _overrides(args: argparse.Namespace) -> dict:
+    out: dict = {"audio": {}, "llm": {}, "stt": {}, "tts": {}, "session": {}, "render": {}, "persona": {}}
+    if getattr(args, "voice", None):
+        out["tts"]["voice_id"] = args.voice
+    if getattr(args, "tts_model", None):
+        out["tts"]["model"] = args.tts_model
+    if getattr(args, "llm", None):
+        out["llm"]["provider"] = args.llm
+    if getattr(args, "llm_model", None):
+        out["llm"]["model"] = args.llm_model
+    if getattr(args, "stt", None):
+        out["stt"]["provider"] = args.stt
+    if getattr(args, "stt_model", None):
+        out["stt"]["model"] = args.stt_model
+    if getattr(args, "input_device", None) is not None:
+        out["audio"]["input_device"] = _device(args.input_device)
+    if getattr(args, "output_device", None) is not None:
+        out["audio"]["output_device"] = _device(args.output_device)
+    if getattr(args, "barge_in", False):
+        out["session"]["barge_in"] = True
+    if getattr(args, "no_render", False):
+        out["session"]["autorender"] = False
+    if getattr(args, "max_gap", None) is not None:
+        out["render"]["max_gap_s"] = args.max_gap
+    if getattr(args, "no_mp3", False):
+        out["render"]["mp3"] = False
+    return {k: v for k, v in out.items() if v}
+
+
+def _device(value: str):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return value
+
+
+def _load(args: argparse.Namespace) -> Config:
+    cfg = load_config(getattr(args, "preset", None), _overrides(args))
+    context_file = getattr(args, "context", None)
+    if context_file:
+        extra = Path(context_file).read_text(encoding="utf-8").strip()
+        cfg.persona.system_prompt = f"{cfg.persona.system_prompt}\n\n{extra}"
+    return cfg
+
+
+# -- comandi ---------------------------------------------------------------
+def cmd_check(args: argparse.Namespace) -> int:
+    cfg = _load(args)
+    rows = [
+        ("OpenAI", api_key(*OPENAI_KEYS)),
+        ("Gemini", api_key(*GEMINI_KEYS)),
+        ("ElevenLabs", api_key(*ELEVEN_KEYS)),
+    ]
+    print("Chiavi API:")
+    for name, key in rows:
+        print(f"  {'OK ' if key else '-- '} {name:<12} {('…' + key[-4:]) if key else 'assente'}")
+    print("\nConfigurazione attiva:")
+    print(f"  STT   {cfg.stt.provider}/{cfg.stt.model} (lingua: {cfg.stt.language})")
+    print(f"  LLM   {cfg.llm.provider}/{cfg.llm.model}")
+    print(f"  TTS   {cfg.tts.provider}/{cfg.tts.model} voce: {cfg.tts.voice_id or 'NON IMPOSTATA'}")
+    print(f"  Audio {cfg.audio.sample_rate} Hz, frame {cfg.audio.frame_ms} ms")
+    print(f"  Ospite: {cfg.persona.name}")
+
+    needed = {"openai": OPENAI_KEYS, "gemini": GEMINI_KEYS}
+    missing = []
+    for provider in (cfg.stt.provider, cfg.llm.provider):
+        if provider in needed and not api_key(*needed[provider]):
+            missing.append(provider)
+    if not api_key(*ELEVEN_KEYS):
+        missing.append("elevenlabs")
+    if not cfg.tts.voice_id:
+        missing.append("tts.voice_id")
+    if missing:
+        print(f"\nManca: {', '.join(sorted(set(missing)))}")
+        return 1
+    print("\nTutto pronto: `her record`")
+    return 0
+
+
+def cmd_devices(args: argparse.Namespace) -> int:
+    from .audio.devices import format_devices
+
+    print("Dispositivi audio:")
+    print(format_devices())
+    return 0
+
+
+def cmd_voices(args: argparse.Namespace) -> int:
+    from .providers.tts import list_voices
+
+    voices = list_voices()
+    needle = (args.search or "").lower()
+    for voice in voices:
+        name = voice.get("name", "?")
+        if needle and needle not in name.lower():
+            continue
+        labels = voice.get("labels") or {}
+        tags = ", ".join(f"{k}={v}" for k, v in labels.items() if v)
+        print(f"  {voice.get('voice_id')}  {name:<22} {tags}")
+    print(f"\n{len(voices)} voci. Usa l'id con `her record --voice <id>` o mettilo nel preset.")
+    return 0
+
+
+def cmd_say(args: argparse.Namespace) -> int:
+    """Prova rapida della voce scelta."""
+    from .audio.wavio import write_wav
+    from .providers.tts import synthesize
+
+    cfg = _load(args)
+    audio = synthesize(args.text, cfg.tts, cfg.audio.sample_rate)
+    out = Path(args.out or "prova-voce.wav")
+    write_wav(out, audio, cfg.audio.sample_rate)
+    print(f"{out} ({audio.size / cfg.audio.sample_rate:.1f}s)")
+    if not args.no_play:
+        try:
+            from .audio.player import Player
+
+            with Player(cfg.audio.sample_rate, device=cfg.audio.output_device) as player:
+                player.play([audio])
+        except Exception as exc:
+            print(f"(riproduzione non disponibile: {exc})")
+    return 0
+
+
+def cmd_record(args: argparse.Namespace) -> int:
+    cfg = _load(args)
+    if not cfg.tts.voice_id:
+        print("Nessuna voce impostata: scegline una con `her voices` e passa --voice <id>.", file=sys.stderr)
+        return 1
+    out_dir = Path(args.out) if args.out else new_session_dir(args.sessions, args.name)
+    print(f"Sessione: {out_dir}")
+    session = PodcastSession(cfg, out_dir, text_input=args.text)
+    session.run()
+    print(f"\nRegistrato: {session.recorder.duration:.1f}s in {out_dir}")
+    if cfg.session.autorender:
+        return _render(out_dir, cfg)
+    print(f"Monta quando vuoi con: her render {out_dir}")
+    return 0
+
+
+def cmd_render(args: argparse.Namespace) -> int:
+    cfg = _load(args)
+    session_dir = Path(args.session)
+    if not (session_dir / "host.wav").exists():
+        print(f"{session_dir} non sembra una sessione (manca host.wav).", file=sys.stderr)
+        return 1
+    return _render(session_dir, cfg)
+
+
+def _render(session_dir: Path, cfg: Config) -> int:
+    result = render_session(session_dir, cfg.render)
+    print(f"\nMontato: {result.wav}  ({result.duration:.1f}s, tagliati {result.saved:.1f}s di vuoti)")
+    if result.mp3:
+        print(f"MP3:     {result.mp3}")
+    print(f"Testi:   {result.transcript} · {result.srt}")
+    return 0
+
+
+def cmd_presets(args: argparse.Namespace) -> int:
+    for path in sorted(PRESET_DIR.glob("*.yaml")):
+        print(f"  {path.stem:<16} {path}")
+    return 0
+
+
+# -- parser ----------------------------------------------------------------
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="her",
+        description="Registra un podcast conversando in tempo reale con un ospite AI.",
+    )
+    parser.add_argument("--version", action="version", version=f"her {__version__}")
+    parser.add_argument("--env", default=".env", help="file con le chiavi API (default: .env)")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    def common(p: argparse.ArgumentParser, full: bool = True) -> None:
+        p.add_argument("-p", "--preset", help="preset YAML (nome in presets/ o percorso)")
+        p.add_argument("--context", help="file di testo da aggiungere al contesto dell'ospite")
+        if full:
+            p.add_argument("--voice", help="voice_id ElevenLabs")
+            p.add_argument("--tts-model", help="modello ElevenLabs (es. eleven_flash_v2_5)")
+            p.add_argument("--llm", choices=["openai", "gemini"])
+            p.add_argument("--llm-model")
+            p.add_argument("--stt", choices=["openai", "gemini"])
+            p.add_argument("--stt-model")
+            p.add_argument("--input-device")
+            p.add_argument("--output-device")
+
+    p_check = sub.add_parser("check", help="verifica chiavi e configurazione")
+    common(p_check)
+    p_check.set_defaults(func=cmd_check)
+
+    p_dev = sub.add_parser("devices", help="elenca i dispositivi audio")
+    p_dev.set_defaults(func=cmd_devices)
+
+    p_voices = sub.add_parser("voices", help="elenca le voci ElevenLabs")
+    p_voices.add_argument("--search", help="filtra per nome")
+    p_voices.set_defaults(func=cmd_voices)
+
+    p_say = sub.add_parser("say", help="prova la voce su una frase")
+    common(p_say)
+    p_say.add_argument("text")
+    p_say.add_argument("-o", "--out")
+    p_say.add_argument("--no-play", action="store_true")
+    p_say.set_defaults(func=cmd_say)
+
+    p_rec = sub.add_parser("record", help="registra una puntata")
+    common(p_rec)
+    p_rec.add_argument("--out", help="cartella della sessione")
+    p_rec.add_argument("--sessions", default="sessions", help="cartella radice delle sessioni")
+    p_rec.add_argument("--name", help="nome della sessione")
+    p_rec.add_argument("--text", action="store_true", help="scrivi invece di parlare (per provare)")
+    p_rec.add_argument("--barge-in", action="store_true", help="puoi interrompere l'ospite (usa le cuffie)")
+    p_rec.add_argument("--no-render", action="store_true", help="non montare a fine registrazione")
+    p_rec.add_argument("--max-gap", type=float, help="pausa massima nel montaggio (s)")
+    p_rec.add_argument("--no-mp3", action="store_true")
+    p_rec.set_defaults(func=cmd_record)
+
+    p_ren = sub.add_parser("render", help="monta una sessione già registrata")
+    common(p_ren, full=False)
+    p_ren.add_argument("session", help="cartella della sessione")
+    p_ren.add_argument("--max-gap", type=float, help="pausa massima fra i turni (s)")
+    p_ren.add_argument("--no-mp3", action="store_true")
+    p_ren.set_defaults(func=cmd_render)
+
+    p_pre = sub.add_parser("presets", help="elenca i preset disponibili")
+    p_pre.set_defaults(func=cmd_presets)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    load_env(args.env)
+    if os.environ.get("HER_NO_COLOR"):
+        from . import session as session_module
+
+        for attr in ("HOST", "GUEST", "DIM", "WARN", "OFF"):
+            setattr(session_module.Ansi, attr, "")
+    from .audio.devices import AudioUnavailable
+    from .providers.llm import LlmError
+    from .providers.stt import SttError
+    from .providers.tts import TtsError
+
+    try:
+        return args.func(args)
+    except (AudioUnavailable, SttError, LlmError, TtsError, FileNotFoundError, ValueError) as exc:
+        print(f"Errore: {exc}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 130
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
