@@ -129,12 +129,26 @@ llm:
   model: gpt-4o
 ```
 
-Per il materiale della puntata (una scaletta, delle note, un documento) non
-serve toccare il preset: `--context note-puntata.md` lo appende al contesto
-dell'ospite.
+### Il materiale della puntata
+
+`contesto.md` (o `--context altro-file.md`) è il briefing della singola puntata:
+appunti in italiano normale e, se vuoi, dei link. Prima di registrare le pagine
+vengono scaricate, ripulite dall'HTML e condensate in punti dallo stesso modello
+che fa l'ospite; il risultato entra nelle sue istruzioni e una copia resta in
+`contesto-usato.md` dentro la puntata. Le pagine lette finiscono in cache
+(`contesto-cache/`), quindi la seconda registrazione parte subito: `--ricarica`
+la ignora, `--no-link` non scarica niente.
+
+`her contesto` mostra il briefing prima di registrare — vale la pena guardarlo:
+è quello che l'ospite avrà in testa per tutta la puntata.
+
+Il testo scaricato è dichiarato all'ospite come **materiale, non istruzioni**:
+una pagina web è scritta da altri e non deve poter cambiare il comportamento
+dell'ospite. Non è una barriera crittografica, ma è la differenza fra dare a
+leggere un articolo e prendere ordini da un articolo.
 
 Ogni valore del preset si può scavalcare da riga di comando
-(`--llm gemini --llm-model gemini-2.5-flash --stt gemini`), e tutta la
+(`--llm gemini --llm-model gemini-3.5-flash --stt gemini`), e tutta la
 configurazione è documentata in `her/config.py`. Il preset attivo si può fissare
 anche con `HER_PRESET` nel `.env`, così i lanciatori a doppio clic lo seguono.
 
@@ -178,6 +192,8 @@ her render sessions/20260826-201500 --max-gap 1.2    # più respiro
 ```
 
 Senza argomenti monta l'ultima puntata registrata (è quello che fa `monta.bat`).
+Il saluto iniziale dell'ospite resta fuori dal montato (`render.drop_greeting`,
+attivo di default) ma è nella registrazione integrale.
 Oltre al montato produce sempre `registrazione-integrale.wav`: le due voci
 sommate senza alcun taglio, coi tempi originali.
 
@@ -197,6 +213,7 @@ sessions/20260826-201500/
 ├── host.wav        la tua voce, dall'inizio alla fine
 ├── guest.wav       l'ospite, in silenzio quando non parla, perfettamente allineato
 ├── registrazione-integrale.wav  le due voci in un file solo, pause comprese
+├── contesto-usato.md  il materiale che l'ospite aveva davanti
 ├── events.jsonl    un turno per riga: chi, da quando a quando, cosa ha detto
 ├── session.json    modelli, voce, persona, durata
 ├── podcast.wav     il montato
