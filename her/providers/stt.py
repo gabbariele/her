@@ -15,7 +15,7 @@ from . import _gemini
 OPENAI_URL = "https://api.openai.com/v1/audio/transcriptions"
 
 #: quante volte al massimo si riprova cambiando modello o togliendo il thinking
-_MAX_ATTEMPTS = 4
+_MAX_ATTEMPTS = 5
 
 _PROMPT = (
     "Trascrivi letteralmente questo audio, parola per parola. "
@@ -92,7 +92,7 @@ def _gemini_payload(audio: bytes, cfg: SttConfig) -> dict:
     if cfg.hint:
         prompt += f" Possono comparire questi termini: {cfg.hint}."
     generation: dict = {"temperature": 0.0}
-    thinking = _gemini.thinking_config(cfg.thinking)
+    thinking = _gemini.thinking_config(cfg.thinking, cfg.model)
     if thinking is not None:
         generation["thinkingConfig"] = thinking
     return {
@@ -133,19 +133,15 @@ def _gemini_transcribe(audio: bytes, cfg: SttConfig, timeout: float, client, not
             )
             if resp.status_code >= 400:
                 detail = resp.text
-                if "thinkingConfig" in (payload.get("generationConfig") or {}) and _gemini.is_thinking_error(
-                    resp.status_code, detail
-                ):
-                    payload = _gemini.strip_thinking(payload)
-                    continue
-                # Google ritira i modelli e nell'errore dice quale usare al suo
-                # posto: seguiamo il consiglio invece di perdere il turno
-                replacement = _gemini.suggested_model(detail, model)
-                if replacement and replacement not in tried:
-                    _notify(notice, _gemini.retired_notice(model, replacement, "stt"))
-                    model, _ = replacement, tried.add(replacement)
-                    continue
-                raise SttError(f"Gemini STT {resp.status_code}: {detail[:300]}")
+                # un modello ritirato o un parametro non gradito si recuperano
+                # da soli: sarebbe assurdo perdere il turno per questo
+                retry = _gemini.plan_retry(resp.status_code, detail, payload, model, tried, "stt")
+                if retry is None:
+                    raise SttError(f"Gemini STT {resp.status_code}: {detail[:300]}")
+                _notify(notice, retry.notice)
+                payload, model = retry.payload, retry.model
+                tried.add(_gemini.normalize_model(model))
+                continue
 
             data = resp.json()
             text = _gemini.response_text(data).strip()

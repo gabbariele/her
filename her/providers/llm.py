@@ -13,7 +13,7 @@ from . import _gemini
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 
 #: quante volte al massimo si riprova cambiando modello o togliendo il thinking
-_MAX_ATTEMPTS = 4
+_MAX_ATTEMPTS = 5
 
 
 class LlmError(RuntimeError):
@@ -92,7 +92,7 @@ def _gemini_payload(system_prompt: str, history: list[dict], cfg: LlmConfig) -> 
         "temperature": cfg.temperature,
         "maxOutputTokens": cfg.max_output_tokens,
     }
-    thinking = _gemini.thinking_config(cfg.thinking)
+    thinking = _gemini.thinking_config(cfg.thinking, cfg.model)
     if thinking is not None:
         generation["thinkingConfig"] = thinking
     return {
@@ -119,19 +119,15 @@ def _gemini_stream(system_prompt, history, cfg: LlmConfig, timeout, client, noti
             with http.stream("POST", url, headers=headers, json=payload, timeout=timeout) as resp:
                 if resp.status_code >= 400:
                     detail = _body(resp)
-                    # certe famiglie di modelli non accettano il campo thinking
-                    if "thinkingConfig" in (payload.get("generationConfig") or {}) and _gemini.is_thinking_error(
-                        resp.status_code, detail
-                    ):
-                        payload = _gemini.strip_thinking(payload)
-                        continue
-                    # e ogni tanto Google ritira un modello, dicendo quale usare
-                    replacement = _gemini.suggested_model(detail, model)
-                    if replacement and replacement not in tried:
-                        _notify(notice, _gemini.retired_notice(model, replacement, "llm"))
-                        model, _ = replacement, tried.add(replacement)
-                        continue
-                    raise LlmError(f"Gemini LLM {resp.status_code}: {detail[:300]}")
+                    # modello ritirato o parametro non gradito: si riprova
+                    # aggiustando la richiesta, invece di far cadere la risposta
+                    retry = _gemini.plan_retry(resp.status_code, detail, payload, model, tried, "llm")
+                    if retry is None:
+                        raise LlmError(f"Gemini LLM {resp.status_code}: {detail[:300]}")
+                    _notify(notice, retry.notice)
+                    payload, model = retry.payload, retry.model
+                    tried.add(_gemini.normalize_model(model))
+                    continue
 
                 for data in _sse(resp):
                     chunk = _json(data)

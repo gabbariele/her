@@ -315,6 +315,7 @@ sostituiti: se ne avevi modificato uno, lo ritrovi lì.
 | *"is no longer available"* / *"404"* su Gemini | Google ha ritirato quel modello. Il programma passa da solo a quello suggerito e te lo dice: per non rivedere l'avviso, apri il preset e scrivi il nome nuovo alla riga `model:`. `modelli.bat` elenca quelli disponibili. |
 | *"429"* / *"RESOURCE_EXHAUSTED"* su Gemini | Quota finita: attiva la fatturazione su Google AI Studio o passa a un modello `-lite`. |
 | L'ospite non risponde e leggi *"risposta vuota"* | Nel preset, sotto `llm:`, metti `thinking: off` o alza `max_output_tokens`. |
+| *"400"* / *"INVALID_ARGUMENT"* su Gemini | Un parametro non gradito da quel modello: il programma riprova da solo semplificando la richiesta e te lo dice. Se fallisce anche così, prova `thinking: auto` nel preset. |
 | Non registra niente quando parli | Permesso microfono negato, o microfono sbagliato: `.venv\Scripts\her.exe devices` mostra quali ci sono. |
 | Sento la voce dell'ospite dentro la mia traccia | Stai usando gli altoparlanti: metti le cuffie. |
 | *"401"* da ElevenLabs | Chiave sbagliata o scaduta: rigenerala su elevenlabs.io. |

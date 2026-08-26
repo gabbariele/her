@@ -155,11 +155,17 @@ Google ritira un modello, l'errore 404 dice quale usare al suo posto: `her`
 legge quel suggerimento, riprova con il modello nuovo e ti avvisa di aggiornare
 il preset, invece di perdere il turno in mezzo a una registrazione.
 
-Sui modelli Gemini recenti c'è anche `thinking:` (`off`, `low`, `medium`,
-`high`, `auto` o un numero di token). Per battute da tre frasi il ragionamento
-è latenza e costo sprecati: nei preset è `off`. Se una famiglia di modelli non
-accetta quel campo, la richiesta viene ripetuta una volta senza — non serve che
-te ne occupi tu.
+Sui modelli Gemini c'è anche `thinking:` (`off`, `minimal`, `low`, `medium`,
+`high`, `auto` o un numero di token). Per battute da tre frasi il ragionamento è
+latenza e costo sprecati: nei preset è `off`.
+
+Le due generazioni si regolano in modi diversi — i 2.5 con un budget di token
+(`thinkingBudget`, azzerabile), i 3.x con un livello (`thinkingLevel`, che al
+minimo è `minimal` e non si può spegnere del tutto) — e mandare il campo
+sbagliato produce un laconico `400 INVALID_ARGUMENT`. `her` sceglie la forma
+giusta dal nome del modello, e se la richiesta viene comunque rifiutata la
+semplifica per gradi (`minimal` → `low` → niente thinking → parametri
+predefiniti) avvisandoti a ogni passo, invece di far cadere la risposta.
 
 ## Il montaggio
 

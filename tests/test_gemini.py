@@ -31,14 +31,19 @@ def fake_key(monkeypatch):
 
 
 # -- configurazione del ragionamento ---------------------------------------
-def test_thinking_config_mapping():
-    assert _gemini.thinking_config("off") == {"thinkingBudget": 0}
-    assert _gemini.thinking_config(False) == {"thinkingBudget": 0}      # `thinking: off` in YAML
-    assert _gemini.thinking_config("low") == {"thinkingLevel": "low"}
-    assert _gemini.thinking_config("2048") == {"thinkingBudget": 2048}
-    assert _gemini.thinking_config("auto") is None
+def test_thinking_config_depends_on_the_model_family():
+    """I 2.5 vogliono un budget di token, i 3.x un livello: sbagliare = 400."""
+    assert _gemini.thinking_config("off", "gemini-2.5-flash-lite") == {"thinkingBudget": 0}
+    assert _gemini.thinking_config(False, "gemini-2.5-flash") == {"thinkingBudget": 0}   # `off` in YAML
+    assert _gemini.thinking_config("off", "gemini-3.5-flash-lite") == {"thinkingLevel": "minimal"}
+    assert _gemini.thinking_config("low", "gemini-3.5-flash") == {"thinkingLevel": "low"}
+    # un livello su un 2.5 e un budget su un 3.x vengono tradotti, non inviati a vuoto
+    assert _gemini.thinking_config("high", "gemini-2.5-flash") == {"thinkingBudget": 16384}
+    assert _gemini.thinking_config("2048", "gemini-3.5-flash") == {"thinkingLevel": "low"}
+    assert _gemini.thinking_config("2048", "gemini-2.5-flash") == {"thinkingBudget": 2048}
+    assert _gemini.thinking_config("auto", "gemini-3.5-flash") is None
     with pytest.raises(ValueError):
-        _gemini.thinking_config("moltissimo")
+        _gemini.thinking_config("moltissimo", "gemini-3.5-flash")
 
 
 def test_model_name_is_normalized():
@@ -66,7 +71,7 @@ def test_llm_payload_shape_and_streaming():
     body = seen["body"]
     assert body["systemInstruction"]["parts"][0]["text"] == "sei un ospite"
     assert [c["role"] for c in body["contents"]] == ["user", "model"]   # assistant -> model
-    assert body["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 0}
+    assert body["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "minimal"}
     assert body["generationConfig"]["maxOutputTokens"] == cfg.max_output_tokens
 
 
@@ -236,3 +241,59 @@ def test_a_model_is_never_tried_twice():
         with pytest.raises(SttError, match="404"):
             transcribe(np.ones(100, dtype=np.int16), 24000, cfg, client=http)
     assert len(chiamate) == 2
+
+
+# -- 400 INVALID_ARGUMENT: la richiesta si semplifica da sola ----------------
+INVALIDO = {"error": {"code": 400, "message": "Request contains an invalid argument.",
+                      "status": "INVALID_ARGUMENT"}}
+
+
+def test_stt_recovers_from_a_generic_invalid_argument():
+    """Il 400 di Google non dice quale campo è sbagliato: si toglie il sospetto."""
+    corpi, avvisi = [], []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        corpi.append(body)
+        if "thinkingConfig" in (body.get("generationConfig") or {}):
+            return httpx.Response(400, json=INVALIDO)
+        return httpx.Response(200, json=_text_chunk("trascritto lo stesso"))
+
+    cfg = SttConfig(provider="gemini", model="gemini-3.5-flash-lite", thinking="off")
+    with _client(handler) as http:
+        text = transcribe(np.ones(100, dtype=np.int16), 24000, cfg,
+                          client=http, notice=avvisi.append)
+
+    assert text == "trascritto lo stesso"
+    # prima prova `minimal`, poi `low`, poi rinuncia al parametro
+    livelli = [(c.get("generationConfig") or {}).get("thinkingConfig") for c in corpi]
+    assert livelli[0] == {"thinkingLevel": "minimal"}
+    assert livelli[1] == {"thinkingLevel": "low"}
+    assert livelli[2] is None
+    assert len(avvisi) == 2
+
+
+def test_llm_gives_up_with_a_readable_error_after_simplifying():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json=INVALIDO)
+
+    cfg = LlmConfig(provider="gemini", model="gemini-3.5-flash-lite", thinking="off")
+    with _client(handler) as http:
+        with pytest.raises(LlmError, match="400"):
+            list(stream_reply("s", [{"role": "user", "content": "x"}], cfg, client=http))
+
+
+def test_temperature_only_payload_is_the_last_thing_dropped():
+    corpi = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        corpi.append(body)
+        if "generationConfig" in body:
+            return httpx.Response(400, json=INVALIDO)
+        return httpx.Response(200, json=_text_chunk("ok"))
+
+    cfg = SttConfig(provider="gemini", model="gemini-3.5-flash-lite", thinking="off")
+    with _client(handler) as http:
+        assert transcribe(np.ones(100, dtype=np.int16), 24000, cfg, client=http) == "ok"
+    assert "generationConfig" not in corpi[-1]

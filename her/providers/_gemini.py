@@ -9,13 +9,14 @@ ad alta voce.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 _OFF = {"off", "no", "false", "0", "disabled", "spento"}
 _AUTO = {"", "auto", "default", "automatico"}
-_LEVELS = {"low", "medium", "high", "minimal"}
+_LEVELS = {"minimal", "low", "medium", "high"}
 
 
 def normalize_model(model: str) -> str:
@@ -29,29 +30,47 @@ def endpoint(model: str, method: str, sse: bool = False) -> str:
     return f"{url}?alt=sse" if sse else url
 
 
-def thinking_config(setting: Any) -> dict | None:
-    """Traduce l'impostazione `thinking` nel campo giusto per l'API.
+#: i modelli Gemini 3 e successivi si regolano a "livelli"; i 2.5 a budget di token
+_LEVEL_FAMILY = re.compile(r"^gemini-([3-9]|\d{2,})", re.I)
+#: equivalenza approssimativa livello -> budget, per i modelli che vogliono i token
+_LEVEL_BUDGET = {"minimal": 0, "low": 1024, "medium": 4096, "high": 16384}
 
-    "off" azzera il ragionamento (più veloce e più economico: per una battuta di
-    podcast non serve), "low"/"medium"/"high" lo dosano, un numero è il budget
-    di token, "auto" lascia decidere al modello. Le famiglie di modelli non
-    accettano tutte gli stessi campi: se l'API lo rifiuta, la chiamata viene
-    ripetuta senza (vedi `is_thinking_error`).
+
+def uses_thinking_level(model: str) -> bool:
+    return bool(_LEVEL_FAMILY.match(normalize_model(model)))
+
+
+def thinking_config(setting: Any, model: str = "") -> dict | None:
+    """Traduce l'impostazione `thinking` nel campo giusto per quel modello.
+
+    Le due generazioni non parlano la stessa lingua: Gemini 3 e successivi
+    vogliono `thinkingLevel` (minimal/low/medium/high), i 2.5 un `thinkingBudget`
+    in token. Mandare il campo sbagliato fa fallire la richiesta con un generico
+    400 INVALID_ARGUMENT, quindi qui si sceglie in base al nome del modello.
+
+    "off" vuol dire «il minimo possibile»: sui 2.5 è davvero zero, sui 3 è il
+    livello minimo, perché quei modelli non sanno smettere di pensare del tutto.
     """
     text = str(setting if setting is not None else "").strip().lower()
     if text in _AUTO:
         return None
+    by_level = uses_thinking_level(model)
     if text in _OFF:
-        return {"thinkingBudget": 0}
+        return {"thinkingLevel": "minimal"} if by_level else {"thinkingBudget": 0}
     if text in _LEVELS:
-        return {"thinkingLevel": text}
+        return {"thinkingLevel": text} if by_level else {"thinkingBudget": _LEVEL_BUDGET[text]}
     try:
-        return {"thinkingBudget": int(text)}
+        budget = int(text)
     except ValueError:
         raise ValueError(
             f"valore di `thinking` non valido: {setting!r} "
-            "(usa off, low, medium, high, auto oppure un numero di token)"
+            "(usa off, minimal, low, medium, high, auto oppure un numero di token)"
         ) from None
+    if not by_level:
+        return {"thinkingBudget": budget}
+    # un budget su un modello a livelli: lo traduciamo nel livello più vicino
+    level = min(_LEVEL_BUDGET, key=lambda name: abs(_LEVEL_BUDGET[name] - budget))
+    return {"thinkingLevel": level}
 
 
 def is_thinking_error(status_code: int, body: str) -> bool:
@@ -91,11 +110,57 @@ def suggested_model(body: str, current: str) -> str | None:
     return None
 
 
-def retired_notice(old: str, new: str, section: str) -> str:
+def retired_notice(old: str, new: str, section: str = "") -> str:
+    dove = f" sotto `{section}:`" if section else ""
     return (
         f"{old} non è più disponibile: uso {new}. "
-        f"Aggiorna la riga `model:` sotto `{section}:` nel preset per non rivedere questo avviso."
+        f"Aggiorna la riga `model:`{dove} nel preset per non rivedere questo avviso."
     )
+
+
+@dataclass
+class Retry:
+    """Il prossimo tentativo da fare dopo una richiesta rifiutata."""
+
+    payload: dict
+    model: str
+    notice: str
+
+
+def plan_retry(
+    status_code: int, body: str, payload: dict, model: str, tried: set[str], section: str = ""
+) -> Retry | None:
+    """Cosa provare dopo un errore, o None per arrendersi.
+
+    Due casi si recuperano da soli: un modello ritirato (Google dice nell'errore
+    quale usare) e un parametro facoltativo non gradito (il 400 è generico, non
+    dice quale: si toglie il più probabile e si riprova).
+    """
+    if status_code == 404 or "no longer available" in body.lower():
+        replacement = suggested_model(body, model)
+        if replacement and replacement not in tried:
+            return Retry(payload, replacement, retired_notice(model, replacement, section))
+        return None
+    if status_code != 400:
+        return None
+
+    generation = dict(payload.get("generationConfig") or {})
+    thinking = generation.get("thinkingConfig") or {}
+    if thinking.get("thinkingLevel") == "minimal":
+        # `minimal` non esiste su tutti i modelli a livelli: `low` sì
+        relaxed = dict(payload)
+        relaxed["generationConfig"] = {**generation, "thinkingConfig": {"thinkingLevel": "low"}}
+        return Retry(relaxed, model, "il livello di thinking «minimal» non è accettato: riprovo con «low»")
+    if thinking:
+        return Retry(
+            strip_thinking(payload),
+            model,
+            "il parametro `thinking` non è accettato da questo modello: riprovo senza",
+        )
+    if generation:
+        relaxed = {k: v for k, v in payload.items() if k != "generationConfig"}
+        return Retry(relaxed, model, "parametri di generazione rifiutati: riprovo con quelli predefiniti")
+    return None
 
 
 def part_text(part: dict) -> str:

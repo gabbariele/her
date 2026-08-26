@@ -36,7 +36,8 @@ stt:
   # disponibile per gli account nuovi.
   model: gemini-3.5-flash-lite
   language: it
-  thinking: "off"          # trascrivere non richiede ragionamento: così è più rapido
+  thinking: "off"          # ragionare per trascrivere è tempo sprecato.
+                           # "off" = il minimo che il modello consente
   # hint: "Weevo, ElevenLabs, podcasting"   # nomi propri ricorrenti, se ce ne sono
 
 llm:
@@ -48,7 +49,10 @@ llm:
   temperature: 0.85
   max_output_tokens: 300
   history_turns: 14
-  thinking: "off"          # per una battuta di 3 frasi il ragionamento è tempo perso
+  thinking: "off"          # per una battuta di 3 frasi il ragionamento è tempo perso.
+                           # Sui modelli Gemini 3 diventa il livello minimo:
+                           # quei modelli non sanno smettere di pensare del tutto.
+                           # Per risposte più meditate: low, medium, high.
 
 tts:
   # La voce resta ElevenLabs: è l'unica cosa per cui non serve Gemini.
