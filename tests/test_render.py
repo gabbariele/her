@@ -133,3 +133,18 @@ def test_latest_session_is_found_for_monta_bat(tmp_path, monkeypatch):
     os.utime(root / "20260102-100000", (2_000_000, 2_000_000))    # la più recente
     assert latest_session(str(root)).name == "20260102-100000"
     assert latest_session(str(tmp_path / "vuoto")) is None
+
+
+def test_sessions_report_flags_a_missing_montage(tmp_path, capsys):
+    from her.cli import cmd_sessions
+
+    class Args:
+        sessions = str(tmp_path / "sessions")
+
+    d = _session(tmp_path / "sessions" / "20260826-2100", [], host_spans=[(0, 1)], length=2.0)
+    (d / "registrazione-integrale.wav").write_bytes(b"RIFF")
+    cmd_sessions(Args())
+    out = capsys.readouterr().out
+    assert "host.wav" in out and "registrazione-integrale.wav" in out
+    assert "MANCA" in out and "podcast.wav" in out
+    assert "monta.bat" in out

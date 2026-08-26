@@ -207,6 +207,9 @@ contiene esattamente quello che è successo, pause comprese. Le ultime due servo
 perfettamente allineate, le apri come due tracce in Audacity, Reaper, Audition o
 quello che usi.
 
+**Per vedere cosa c'è davvero** in ogni puntata, doppio clic su **`stato.bat`**:
+elenca le registrazioni una per una e dice quali file ha e quali le mancano.
+
 > **L'MP3 non c'è?** Serve un programma in più, `ffmpeg`. Non è obbligatorio: il
 > `.wav` è già pronto e lo pubblichi uguale. Se lo vuoi, scaricalo da
 > [ffmpeg.org](https://ffmpeg.org/download.html).
@@ -237,12 +240,14 @@ HER_DOMANDE=raramente
 HER_INDICAZIONI=
 ```
 
-- **`HER_LUNGHEZZA`** — `breve` (2-3 frasi), `media` (4-6), `lunga` (8-12,
-  con esempi e una posizione), `monologo` (anche due o tre minuti). Se ti
-  risponde a monosillabi, è questa la riga da alzare.
-- **`HER_DOMANDE`** — `mai`, `raramente` (default: al massimo una ogni cinque
-  o sei risposte), `spesso`. Se ti rimbalza sempre la palla con «e tu che ne
-  pensi?», mettila su `mai`.
+- **`HER_LUNGHEZZA`** — `breve` (2-3 frasi), `media` (4-6, il default),
+  `lunga` (8-12, argomenta e prende posizione), `monologo` (anche due o tre
+  minuti). Se ti risponde a monosillabi alzala, se ti sommerge abbassala.
+  Comunque la imposti, l'ospite varia il registro da sola: a volte parte da un
+  esempio, a volte dice subito cosa pensa, a volte spiega e basta.
+- **`HER_DOMANDE`** — `mai`, `raramente` (una ogni cinque o sei risposte),
+  `talvolta` (una su tre, il default), `spesso`. Se ti rimbalza sempre la palla
+  con «e tu che ne pensi?», scendi a `raramente` o `mai`.
 - **`HER_INDICAZIONI`** — testo libero, scritto come lo diresti a un ospite
   vero: `sii più ironica`, `non parlare di politica`, `dammi del tu`,
   `parla più lentamente`. Finisce dritto nelle istruzioni dell'ospite.
@@ -344,7 +349,8 @@ sostituiti: se ne avevi modificato uno, lo ritrovi lì.
 |---|---|
 | L'ospite prende la parola mentre stai ancora pensando | Alza `HER_PAUSA` nel `.env` (per esempio `2.5`). |
 | Risponde con due parole e ti fa subito una domanda | `HER_LUNGHEZZA=lunga` e `HER_DOMANDE=mai` nel `.env`. |
-| Manca il file montato (`podcast.wav`) | La finestra si è chiusa prima del montaggio: doppio clic su `monta.bat`. |
+| Manca il file montato (`podcast.wav`) | Quasi sempre è `Ctrl-C`: chiude la finestra prima che il montaggio sia scritto. Chiudi con `Invio`, e per recuperare la puntata fai doppio clic su `monta.bat`. |
+| Non capisci quali file hai e quali no | Doppio clic su `stato.bat`: elenca le puntate e dice riga per riga cosa c'è e cosa manca. |
 | La voce ha l'accento straniero | La pronuncia la impone già `language: it`; l'accento dipende dalla voce: prendine una italiana dalla Voice Library (passo 5). |
 | *"Manca: gemini"*, *"Manca: openai"* o *"tts.voice_id"* | Chiavi non salvate: rileggi i passi 4 e 5. Attenzione agli spazi. |
 | *"trascrizione fallita: manca OPENAI_API_KEY"* | Stai usando un preset su OpenAI: metti `HER_PRESET=gemini` nel `.env`. |

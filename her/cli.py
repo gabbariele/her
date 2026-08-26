@@ -200,10 +200,17 @@ def cmd_record(args: argparse.Namespace) -> int:
     session = PodcastSession(cfg, out_dir, text_input=args.text)
     session.run()
     print(f"\nRegistrato: {session.recorder.duration:.1f}s in {out_dir}")
-    if cfg.session.autorender:
+    if not cfg.session.autorender:
+        print("Monta quando vuoi: doppio clic su monta.bat")
+        return 0
+    try:
         return _render(out_dir, cfg)
-    print(f"Monta quando vuoi con: her render {out_dir}")
-    return 0
+    except Exception as exc:
+        # le tracce sono già salvate: il montaggio si può sempre rifare
+        print(f"\nMontaggio non riuscito: {exc}", file=sys.stderr)
+        print("Le registrazioni sono al sicuro in "
+              f"{out_dir}: rifai il montaggio con monta.bat", file=sys.stderr)
+        return 1
 
 
 def latest_session(root: str = "sessions") -> Path | None:
@@ -264,6 +271,59 @@ def cmd_models(args: argparse.Namespace) -> int:
     print(f"\n{shown} modelli utilizzabili su {provider}.")
     print("Usa il nome con  --llm-model <nome>  /  --stt-model <nome>, o mettilo nel preset.")
     return 0
+
+
+#: i file che una puntata completa dovrebbe avere, con la loro descrizione
+SESSION_FILES = [
+    ("host.wav", "la tua voce"),
+    ("guest.wav", "la voce dell'ospite"),
+    ("registrazione-integrale.wav", "le due voci insieme, pause comprese"),
+    ("podcast.wav", "il montato, senza i vuoti"),
+    ("podcast.mp3", "il montato in mp3 (serve ffmpeg)"),
+    ("transcript.md", "la trascrizione"),
+]
+
+
+def cmd_sessions(args: argparse.Namespace) -> int:
+    """Elenca le puntate e dice quali file ha ciascuna: serve a capire dove si è fermato."""
+    base = Path(args.sessions)
+    if not base.exists():
+        print(f"Nessuna puntata: la cartella {base}/ non esiste ancora.")
+        return 0
+    sessions = sorted((d for d in base.iterdir() if d.is_dir()), key=lambda d: d.name)
+    if not sessions:
+        print(f"Nessuna puntata in {base}/.")
+        return 0
+
+    incomplete = []
+    for session in sessions:
+        print(f"\n{session}")
+        for name, what in SESSION_FILES:
+            path = session / name
+            if path.exists():
+                size = path.stat().st_size
+                print(f"  OK  {name:<28} {_size(size)}  {what}")
+            elif name == "podcast.mp3":
+                print(f"  --  {name:<28} assente        {what}")
+            else:
+                print(f"  --  {name:<28} MANCA          {what}")
+                if name != "podcast.mp3":
+                    incomplete.append(session)
+    if incomplete:
+        print("\nA qualche puntata manca il montaggio: doppio clic su monta.bat "
+              "(rimonta l'ultima) oppure:")
+        print(f"  .venv\\Scripts\\her.exe render {sorted(set(incomplete))[-1]}")
+    else:
+        print("\nTutte le puntate sono complete.")
+    return 0
+
+
+def _size(n: int) -> str:
+    for unit in ("B", "kB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024.0
+    return f"{n:.1f} GB"
 
 
 def cmd_presets(args: argparse.Namespace) -> int:
@@ -346,6 +406,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_mod.add_argument("--provider", choices=["openai", "gemini"], help="default: quello del preset")
     p_mod.add_argument("--search", help="filtra per nome")
     p_mod.set_defaults(func=cmd_models)
+
+    p_ses = sub.add_parser("sessioni", help="elenca le puntate e i file di ciascuna")
+    p_ses.add_argument("--sessions", default="sessions", help="cartella radice delle puntate")
+    p_ses.set_defaults(func=cmd_sessions)
 
     p_pre = sub.add_parser("presets", help="elenca i preset disponibili")
     p_pre.set_defaults(func=cmd_presets)

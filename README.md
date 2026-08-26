@@ -221,9 +221,14 @@ sessions/20260826-201500/
   italiano madrelingua scegli una voce italiana dalla Voice Library.
 - **Se parte da solo** in una stanza rumorosa, alza `vad.threshold_db` da 10 a
   14–16 dB. La soglia effettiva te la stampa a inizio sessione.
+- **`registrazione-integrale.wav` viene scritto alla chiusura della sessione**,
+  prima e indipendentemente dal montaggio: se il montaggio non parte, la
+  registrazione completa c'è comunque. `her sessioni` dice, puntata per
+  puntata, quali file ci sono e quali mancano; `her render` senza argomenti
+  rimonta l'ultima.
 - **Quanto parla e quanto ti interroga** sono due manopole, non un problema di
   prompt da riscrivere: `persona.length` (`breve`/`media`/`lunga`/`monologo`) e
-  `persona.questions` (`mai`/`raramente`/`spesso`), anche da `.env`
+  `persona.questions` (`mai`/`raramente`/`talvolta`/`spesso`), anche da `.env`
   (`HER_LUNGHEZZA`, `HER_DOMANDE`) o da riga di comando. `persona.notes`
   (`HER_INDICAZIONI`) aggiunge un'indicazione libera («sii più ironica»). Il
   tetto di token sale da solo con la lunghezza, così la risposta non si tronca.

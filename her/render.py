@@ -92,6 +92,22 @@ def plan_timeline(events: list[dict], cfg: RenderConfig) -> list[dict]:
     return plan
 
 
+def write_full_mix(session_dir: str | Path, cfg: RenderConfig | None = None) -> Path:
+    """Somma le due tracce e salva `registrazione-integrale.wav`.
+
+    È il primo file prodotto e il più semplice: nessun taglio, nessuna
+    timeline, solo le due voci coi tempi veri. Se il montaggio non riesce,
+    o non fa in tempo, questo c'è comunque.
+    """
+    session_dir = Path(session_dir)
+    cfg = cfg or RenderConfig()
+    host, sr = read_wav(session_dir / "host.wav")
+    guest, sr_g = read_wav(session_dir / "guest.wav")
+    if sr_g != sr:
+        raise ValueError("host.wav e guest.wav hanno sample rate diversi")
+    return write_wav(session_dir / "registrazione-integrale.wav", _mix_full(host, guest, cfg), sr)
+
+
 def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> RenderResult:
     session_dir = Path(session_dir)
     cfg = cfg or RenderConfig()

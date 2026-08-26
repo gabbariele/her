@@ -10,9 +10,9 @@ persona:
   greeting: "Ciao, eccomi. Quando vuoi partiamo."
 
   # Quanto parla: breve | media | lunga | monologo
-  length: lunga
-  # Quanto rimanda la palla a te: mai | raramente | spesso
-  questions: raramente
+  length: media
+  # Quanto rimanda la palla a te: mai | raramente | talvolta | spesso
+  questions: talvolta
 
   system_prompt: |
     Sei Nova, ospite di un podcast italiano, in diretta con il conduttore.
@@ -72,7 +72,7 @@ llm:
   #   gemini-3.5-flash        la migliore delle "flash", se vuoi risposte più ricche
   model: gemini-3.5-flash-lite
   temperature: 0.85
-  max_output_tokens: 900
+  max_output_tokens: 500
   history_turns: 14
   thinking: "off"          # per una battuta di 3 frasi il ragionamento è tempo perso.
                            # Sui modelli Gemini 3 diventa il livello minimo:

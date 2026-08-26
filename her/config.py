@@ -78,8 +78,7 @@ LENGTH_RULES = {
         220,
     ),
     "media": (
-        "LUNGHEZZA: sviluppa la risposta in 4-6 frasi. Non limitarti ad accennare: "
-        "porta un esempio concreto o un dettaglio che la regga.",
+        "LUNGHEZZA: sviluppa la risposta in 4-6 frasi, senza tirarla per le lunghe.",
         500,
     ),
     "lunga": (
@@ -97,6 +96,14 @@ LENGTH_RULES = {
     ),
 }
 
+#: come evitare che tutte le risposte suonino uguali
+VARIETY_RULE = (
+    "VARIETÀ: non rispondere sempre con lo stesso schema. Alterna: a volte parti "
+    "da un esempio concreto o da un episodio, a volte dici subito cosa pensi e "
+    "prendi posizione, a volte spieghi e basta. Non fare tutte e tre le cose "
+    "nella stessa risposta e non usare due volte di fila la stessa apertura."
+)
+
 #: quanto spesso l'ospite può rimandare la palla al conduttore
 QUESTION_RULES = {
     "mai": (
@@ -108,6 +115,11 @@ QUESTION_RULES = {
         "niente «vuoi che approfondisca?»: se c'è da approfondire, approfondisci. "
         "Una domanda ci sta solo una volta ogni cinque o sei risposte, e solo se "
         "nasce davvero dal discorso."
+    ),
+    "talvolta": (
+        "DOMANDE: ogni tanto — diciamo una risposta su tre — chiudi rilanciando "
+        "con una domanda al conduttore, se nasce dal discorso. Le altre volte "
+        "chiudi e basta: niente «e tu che ne pensi?» di riempimento."
     ),
     "spesso": (
         "DOMANDE: quando è naturale, chiudi rilanciando con una domanda al conduttore."
@@ -135,7 +147,7 @@ class PersonaConfig:
         Tenerle fuori dal testo scritto a mano serve a poterle cambiare dal
         `.env` senza riscrivere il personaggio.
         """
-        parts = [self.system_prompt.strip()]
+        parts = [self.system_prompt.strip(), VARIETY_RULE]
         if self.notes.strip():
             parts.append(f"INDICAZIONI PER OGGI: {self.notes.strip()}")
         if self.length:

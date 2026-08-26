@@ -147,3 +147,22 @@ def test_mic_turn_is_transcribed_and_answered(tmp_path, monkeypatch, patched):
     assert events[1]["speaker"] == "guest"
     assert events[1]["start"] >= events[0]["end"] - 0.5
     assert sess.turns == 1
+
+
+def test_full_recording_exists_before_any_montage(tmp_path, monkeypatch, patched):
+    """La registrazione completa si scrive alla chiusura, non al montaggio:
+    se il montaggio non parte (o la finestra viene chiusa), c'è comunque."""
+    from her.audio.wavio import read_wav
+
+    sess = _run_text_session(tmp_path, monkeypatch, ["prima domanda", "seconda domanda"])
+    integrale = sess.dir / "registrazione-integrale.wav"
+    assert integrale.exists()
+
+    audio, rate = read_wav(integrale)
+    host, _ = read_wav(sess.dir / "host.wav")
+    assert rate == SR
+    assert audio.size == host.size          # stessa durata delle tracce
+    assert np.any(audio != 0)               # e contiene la voce dell'ospite
+
+    # nessun montaggio è stato eseguito in questo test
+    assert not (sess.dir / "podcast.wav").exists()

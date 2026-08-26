@@ -114,6 +114,23 @@ class PodcastSession:
         self.player.close()
         self.recorder.close()
         self._write_meta(final=True)
+        self._write_full_mix()
+
+    def _write_full_mix(self) -> None:
+        """Le due voci in un file solo, scritto subito dopo la registrazione.
+
+        Non aspetta il montaggio: se qualcosa va storto dopo (o la finestra
+        viene chiusa), la registrazione completa è già sul disco.
+        """
+        if self.recorder.duration <= 0:
+            return
+        try:
+            from .render import write_full_mix
+
+            path = write_full_mix(self.dir)
+            _note(f"registrazione completa: {path}")
+        except Exception as exc:
+            _warn(f"registrazione completa non scritta: {exc}")
 
     def _write_meta(self, final: bool = False) -> None:
         meta = {

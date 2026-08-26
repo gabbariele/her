@@ -136,8 +136,10 @@ def test_persona_rules_are_appended_to_the_prompt():
     cfg = load_config("gemini")
     prompt = cfg.persona.effective_prompt()
     assert cfg.persona.system_prompt.strip() in prompt
-    assert "LUNGHEZZA:" in prompt and "8-12 frasi" in prompt
-    assert "DOMANDE:" in prompt and "non rimandare la palla" in prompt.lower()
+    assert "LUNGHEZZA:" in prompt and "4-6 frasi" in prompt
+    assert "DOMANDE:" in prompt and "una risposta su tre" in prompt
+    # e la regola che tiene le risposte diverse fra loro c'è sempre
+    assert "VARIETÀ:" in prompt
 
 
 def test_short_and_talkative_are_really_different():
