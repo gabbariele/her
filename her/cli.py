@@ -416,7 +416,7 @@ def cmd_analyze(args: argparse.Namespace) -> int:
 
     from .audio.recorder import read_events
     from .audio.wavio import read_wav, wav_duration
-    from .render import measure_levels, plan_timeline, recover_host_events, unmatched_host_seconds
+    from .render import plan_timeline, prepare_tracks, recover_host_events, unmatched_host_seconds
 
     cfg = _load(args)
     session_dir = Path(args.session) if args.session else latest_session(args.sessions)
@@ -442,10 +442,14 @@ def cmd_analyze(args: argparse.Namespace) -> int:
     recovered = recover_host_events(host, guest, usable, sr, cfg.render) if cfg.render.recover_host_audio else []
     piano = plan_timeline(sorted(usable + recovered, key=lambda e: e["start"]), cfg.render)
 
-    levels = measure_levels({"host": host, "guest": guest}, usable, sr, cfg.render)
-    print(f"  volumi: tu {levels.host_dbfs:.0f} dB, ospite {levels.guest_dbfs:.0f} dB "
-          f"→ correzione {levels.host_gain_db:+.0f} / {levels.guest_gain_db:+.0f} dB"
-          if levels.host_dbfs is not None and levels.guest_dbfs is not None else "  volumi: non misurabili")
+    _, levels = prepare_tracks({"host": host, "guest": guest}, usable, sr, cfg.render)
+    if levels.host_lufs is not None and levels.guest_lufs is not None:
+        print(f"  volumi percepiti: tu {levels.host_lufs:.1f} LUFS, ospite {levels.guest_lufs:.1f} LUFS")
+        print(f"  correzione applicata: {levels.host_gain_db:+.1f} / {levels.guest_gain_db:+.1f} dB "
+              f"(target {cfg.render.target_lufs} LUFS)")
+        print(f"  compressione: tu {levels.host_compressed}, ospite {levels.guest_compressed}")
+    else:
+        print("  volumi: non misurabili")
     print(f"  bilanciamento attivo: {cfg.render.match_loudness} · "
           f"recupero audio: {cfg.render.recover_host_audio} · pausa max: {cfg.render.max_gap_s}s")
     print(f"  spezzoni recuperati: {len(recovered)}")
@@ -521,10 +525,11 @@ def _size(n: int) -> str:
 
 def _print_levels(levels) -> None:
     """Dice com'erano le due voci e cosa è stato fatto per pareggiarle."""
-    if levels.host_dbfs is None or levels.guest_dbfs is None:
+    if levels.host_lufs is None or levels.guest_lufs is None:
         return
-    print(f"Volumi:    tu {levels.host_dbfs:.0f} dB, l'ospite {levels.guest_dbfs:.0f} dB "
-          f"→ corretti di {levels.host_gain_db:+.0f} e {levels.guest_gain_db:+.0f} dB")
+    compressa = " (la tua voce è stata anche compressa)" if levels.host_compressed else ""
+    print(f"Volumi:    tu {levels.host_lufs:.1f} LUFS, l'ospite {levels.guest_lufs:.1f} LUFS "
+          f"→ corretti di {levels.host_gain_db:+.1f} e {levels.guest_gain_db:+.1f} dB{compressa}")
     if levels.host_gain_db > 14:
         print("           (il tuo microfono è molto basso: alzalo in Impostazioni di Windows →")
         print("            Sistema → Audio → Microfono → Volume, così si sente meno il fruscio)")

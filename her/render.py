@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .audio.loudness import compress, loudness_lufs
 from .audio.recorder import read_events
 from .audio.wavio import read_wav, write_wav
 from .config import RenderConfig
@@ -22,18 +23,20 @@ from .config import RenderConfig
 
 @dataclass
 class Levels:
-    """Com'erano le due voci e quanto sono state corrette."""
+    """Com'erano le due voci e cosa è stato fatto per pareggiarle."""
 
-    host_dbfs: float | None = None
-    guest_dbfs: float | None = None
+    host_lufs: float | None = None
+    guest_lufs: float | None = None
     host_gain_db: float = 0.0
     guest_gain_db: float = 0.0
+    host_compressed: bool = False
+    guest_compressed: bool = False
 
     @property
     def gap_db(self) -> float:
-        if self.host_dbfs is None or self.guest_dbfs is None:
+        if self.host_lufs is None or self.guest_lufs is None:
             return 0.0
-        return abs(self.host_dbfs - self.guest_dbfs)
+        return abs(self.host_lufs - self.guest_lufs)
 
 
 @dataclass
@@ -229,29 +232,65 @@ def unmatched_host_seconds(host: np.ndarray, events: list[dict], sr: int) -> flo
     return float(np.count_nonzero(speech) * frame / sr)
 
 
-def measure_levels(
+def _material(track: np.ndarray, spans: list[tuple[float, float]] | None, sr: int) -> np.ndarray:
+    """Solo i pezzi in cui quella voce parla: il resto è silenzio e falserebbe."""
+    if not spans:
+        return track
+    pieces = [_slice(track, a, b, sr) for a, b in spans]
+    pieces = [p for p in pieces if p.size]
+    return np.concatenate(pieces) if pieces else track
+
+
+def prepare_tracks(
     tracks: dict, events: list[dict], sr: int, cfg: RenderConfig
-) -> Levels:
-    """Quanto sono distanti le due voci, e di quanto vanno corrette."""
+) -> tuple[dict, Levels]:
+    """Porta le due voci allo stesso volume percepito, e le rende ascoltabili insieme.
+
+    Tre passaggi per traccia: misura in LUFS (lo standard dei podcast), guadagno
+    per arrivare al target, e per la voce al microfono una compressione leggera —
+    senza, le parole dette piano restano sotto quelle della voce sintetica, che
+    è compressa in partenza.
+    """
     levels = Levels()
-    measured = {}
+    out: dict = {}
     for speaker, track in tracks.items():
         spans = [(float(e["start"]), float(e["end"])) for e in events if e["speaker"] == speaker]
-        measured[speaker] = speech_level_dbfs(track, sr, spans or None)
-    levels.host_dbfs, levels.guest_dbfs = measured.get("host"), measured.get("guest")
+        measured = loudness_lufs(_material(track, spans or None, sr), sr)
+        setattr(levels, f"{speaker}_lufs", measured)
 
-    if not cfg.match_loudness:
-        levels.host_gain_db = cfg.host_gain_db
-        levels.guest_gain_db = cfg.guest_gain_db
-        return levels
+        # 1. porta la voce al volume di riferimento
+        auto_db = 0.0
+        if cfg.match_loudness and measured is not None:
+            auto_db = float(np.clip(cfg.target_lufs - measured, -cfg.max_match_db, cfg.max_match_db))
+        audio = track.astype(np.float32) * _db_to_gain(auto_db)
 
-    for speaker, extra in (("host", cfg.host_gain_db), ("guest", cfg.guest_gain_db)):
-        level = measured.get(speaker)
-        correction = 0.0
-        if level is not None and np.isfinite(level):
-            correction = float(np.clip(cfg.target_dbfs - level, -cfg.max_match_db, cfg.max_match_db))
-        setattr(levels, f"{speaker}_gain_db", correction + extra)
-    return levels
+        # 2. comprimi la dinamica (solo dove serve: la voce sintetica è già densa)
+        if (cfg.compress_host if speaker == "host" else cfg.compress_guest) and measured is not None:
+            audio = compress(
+                audio,
+                sr,
+                threshold_db=cfg.target_lufs + cfg.compress_threshold_offset_db,
+                ratio=cfg.compress_ratio,
+            )
+            setattr(levels, f"{speaker}_compressed", True)
+            after = loudness_lufs(_material(audio, spans or None, sr), sr) if cfg.match_loudness else None
+            if after is not None:
+                # la compressione abbassa il volume: si recupera, ma il tetto
+                # vale sulla correzione totale, o su una traccia quasi muta si
+                # finirebbe per amplificare solo il fruscio
+                total = float(np.clip(auto_db + (cfg.target_lufs - after),
+                                      -cfg.max_match_db, cfg.max_match_db))
+                audio *= _db_to_gain(total - auto_db)
+                auto_db = total
+
+        # 3. il ritocco manuale si applica per ultimo, così non viene mangiato
+        manual_db = cfg.host_gain_db if speaker == "host" else cfg.guest_gain_db
+        if manual_db:
+            audio = audio * _db_to_gain(manual_db)
+
+        setattr(levels, f"{speaker}_gain_db", auto_db + manual_db)
+        out[speaker] = audio
+    return out, levels
 
 
 def _fade(audio: np.ndarray, n: int) -> np.ndarray:
@@ -274,6 +313,27 @@ def _slice(track: np.ndarray, start: float, end: float, sr: int) -> np.ndarray:
     if i1 <= i0:
         return np.zeros(0, dtype=np.float32)
     return track[i0:i1].astype(np.float32)
+
+
+def pad_events(events: list[dict], cfg: RenderConfig, duration: float) -> list[dict]:
+    """Allarga ogni turno di un filo prima e dopo.
+
+    L'endpointer chiude il turno appena sente silenzio, e taglia la coda: senza
+    un margine il montato mangia l'ultima sillaba e l'attacco della successiva.
+    Il margine non può invadere il turno precedente della stessa voce, o la
+    stessa frase finirebbe due volte nel montaggio.
+    """
+    padded: list[dict] = []
+    last_end: dict[str, float] = {}
+    for ev in sorted(events, key=lambda e: (e["start"], e["end"])):
+        speaker = ev["speaker"]
+        start = max(0.0, float(ev["start"]) - cfg.edge_pad_in_s, last_end.get(speaker, 0.0))
+        end = min(duration, float(ev["end"]) + cfg.edge_pad_out_s)
+        if end <= start:
+            start, end = float(ev["start"]), float(ev["end"])
+        padded.append({**ev, "start": round(start, 3), "end": round(end, 3)})
+        last_end[speaker] = end
+    return padded
 
 
 def plan_timeline(events: list[dict], cfg: RenderConfig) -> list[dict]:
@@ -319,8 +379,8 @@ def write_full_mix(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
     if sr_g != sr:
         raise ValueError("host.wav e guest.wav hanno sample rate diversi")
     events = read_events(session_dir)
-    levels = measure_levels({"host": host, "guest": guest}, events, sr, cfg)
-    mix = _mix_full(host, guest, cfg, levels)
+    trattate, _ = prepare_tracks({"host": host, "guest": guest}, events, sr, cfg)
+    mix = _mix_full(trattate["host"], trattate["guest"], cfg)
     return write_wav(session_dir / "registrazione-integrale.wav", mix, sr)
 
 
@@ -335,13 +395,13 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
     raw_duration = max(host.size, guest.size) / sr
 
     all_events = read_events(session_dir)
-    # le due voci vanno pareggiate: un microfono è quasi sempre più basso di
-    # una voce sintetica, e la differenza si sente subito
-    levels = measure_levels(tracks, all_events, sr, cfg)
+    # le due voci vanno pareggiate e rese ascoltabili insieme: un microfono è
+    # quasi sempre più basso, e più dinamico, di una voce sintetica
+    trattate, levels = prepare_tracks(tracks, all_events, sr, cfg)
 
     # registrazione integrale: tutto quello che è successo, in un file solo,
     # con i tempi veri. È la copia di sicurezza da cui si riparte sempre.
-    integrale = _mix_full(host, guest, cfg, levels)
+    integrale = _mix_full(trattate["host"], trattate["guest"], cfg)
     full_path = write_wav(session_dir / "registrazione-integrale.wav", integrale, sr)
 
     events = [e for e in all_events if e["speaker"] in tracks]
@@ -367,17 +427,16 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
         recovered = recover_host_events(host, guest, events, sr, cfg)
         events = sorted(events + recovered, key=lambda e: (e["start"], e["end"]))
 
-    plan = plan_timeline(events, cfg)
+    plan = plan_timeline(pad_events(events, cfg, host.size / sr), cfg)
     total = max(p["end"] for p in plan) + cfg.tail_s
     mixdown = np.zeros(int(round(total * sr)) + 1, dtype=np.float32)
-    gains = {"host": _db_to_gain(levels.host_gain_db), "guest": _db_to_gain(levels.guest_gain_db)}
     fade_n = int(sr * cfg.fade_ms / 1000)
 
     for item in plan:
-        audio = _slice(tracks[item["speaker"]], item["src_start"], item["src_end"], sr)
+        audio = _slice(trattate[item["speaker"]], item["src_start"], item["src_end"], sr)
         if audio.size == 0:
             continue
-        audio = _fade(audio * gains[item["speaker"]], fade_n)
+        audio = _fade(audio, fade_n)
         at = int(round(item["start"] * sr))
         end = min(at + audio.size, mixdown.size)
         mixdown[at:end] += audio[: end - at]
@@ -401,11 +460,12 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
     )
 
 
-def _mix_full(host: np.ndarray, guest: np.ndarray, cfg: RenderConfig, levels: Levels) -> np.ndarray:
+def _mix_full(host: np.ndarray, guest: np.ndarray, cfg: RenderConfig) -> np.ndarray:
+    """Somma due tracce già portate al volume giusto."""
     n = max(host.size, guest.size)
     mix = np.zeros(n, dtype=np.float32)
-    mix[: host.size] += host.astype(np.float32) * _db_to_gain(levels.host_gain_db)
-    mix[: guest.size] += guest.astype(np.float32) * _db_to_gain(levels.guest_gain_db)
+    mix[: host.size] += host.astype(np.float32)
+    mix[: guest.size] += guest.astype(np.float32)
     return _normalize(mix, cfg.peak_dbfs)
 
 

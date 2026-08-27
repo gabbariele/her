@@ -63,7 +63,7 @@ def test_render_produces_shorter_audio_and_texts(tmp_path):
     result = render_session(d, RenderConfig(max_gap_s=0.45, mp3=False))
 
     assert result.raw_duration == 30.0
-    assert 7.0 < result.duration < 9.0
+    assert 7.0 < result.duration < 10.0
     assert result.saved > 20.0
 
     audio, rate = read_wav(result.wav)
@@ -82,7 +82,7 @@ def test_render_without_events_still_cuts_using_the_audio(tmp_path):
     (d / "events.jsonl").write_text("", encoding="utf-8")
     result = render_session(d, RenderConfig(mp3=False))
     assert result.derived_timeline
-    assert result.duration < 5.0                       # non più i 10 secondi interi
+    assert result.duration < 6.0                       # non più i 10 secondi interi
     assert result.raw_duration == 10.0
 
 
@@ -271,7 +271,7 @@ def test_untranscribed_turns_stay_in_the_montage(tmp_path):
     result = render_session(d, RenderConfig(mp3=False))
 
     assert len(result.segments) == 3                      # il «buongiorno» c'è ancora
-    assert result.segments[0]["src_start"] == 1.0
+    assert result.segments[0]["src_start"] < 1.0          # con il margine davanti
     assert "(non trascritto)" in result.transcript.read_text(encoding="utf-8")
 
 
@@ -365,7 +365,7 @@ def test_a_lost_timeline_is_rebuilt_from_the_audio(tmp_path):
     result = render_session(tmp_path, RenderConfig(mp3=False))
     assert result.derived_timeline
     assert [s["speaker"] for s in result.segments] == ["host", "guest", "host"]
-    assert result.duration < 14.0                      # i vuoti sono stati tagliati
+    assert result.duration < 16.0                      # i vuoti sono stati tagliati
     assert result.raw_duration == 30.0
 
 
@@ -375,3 +375,28 @@ def test_two_silent_tracks_still_produce_a_file(tmp_path):
     (tmp_path / "events.jsonl").write_text("", encoding="utf-8")
     result = render_session(tmp_path, RenderConfig(mp3=False))
     assert not result.derived_timeline and result.wav.exists()
+
+
+def test_turns_keep_a_margin_so_words_are_not_clipped(tmp_path):
+    from her.render import pad_events
+
+    events = [
+        {"speaker": "host", "start": 2.0, "end": 4.0, "text": "a"},
+        {"speaker": "guest", "start": 5.0, "end": 7.0, "text": "b"},
+        {"speaker": "host", "start": 8.0, "end": 9.0, "text": "c"},
+    ]
+    cfg = RenderConfig(edge_pad_in_s=0.15, edge_pad_out_s=0.30)
+    padded = pad_events(events, cfg, duration=20.0)
+    assert padded[0]["start"] == 1.85 and padded[0]["end"] == 4.3
+    assert padded[2]["start"] == 7.85
+
+
+def test_the_margin_never_eats_into_the_previous_turn(tmp_path):
+    from her.render import pad_events
+
+    events = [                                   # due turni attaccati della stessa voce
+        {"speaker": "host", "start": 2.0, "end": 4.0, "text": "a"},
+        {"speaker": "host", "start": 4.2, "end": 6.0, "text": "b"},
+    ]
+    padded = pad_events(events, RenderConfig(edge_pad_in_s=0.5, edge_pad_out_s=0.5), duration=20.0)
+    assert padded[1]["start"] >= padded[0]["end"] - 1e-6      # nessuna sovrapposizione

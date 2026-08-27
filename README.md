@@ -208,13 +208,22 @@ pause a `max_gap_s`, tiene le sovrapposizioni vere (quando interrompi l'ospite),
 mette un fade di 12 ms su ogni giunta per non sentire i click, normalizza a
 −1 dBFS ed esporta WAV + MP3 + `transcript.md` + `transcript.srt`.
 
-**Pareggia anche i volumi.** Il livello del parlato di ciascuna voce viene
-misurato sui suoi turni (ignorando le pause, e all'interno dei turni i frame
-sotto il fondo, che falserebbero la media) e portato a `target_dbfs`, con la
-correzione limitata a `max_match_db` per non tirare su il rumore di una traccia
-troppo bassa. `host_gain_db`/`guest_gain_db` restano come ritocco manuale sopra
-il pareggio, e `match_loudness: false` lo disattiva. I livelli misurati e le
-correzioni applicate sono nel riepilogo di fine montaggio.
+**Pareggia anche i volumi, in LUFS.** Misurare una voce con l'RMS dei frame più
+forti sbaglia: basta una plosiva o un colpo sul tavolo perché la misura salga di
+2-3 dB e un microfono che a orecchio è basso risulti «già a posto». Il livello si
+misura quindi come nello standard broadcast (ITU-R BS.1770): K-weighting, blocchi
+da 400 ms, cancello assoluto e relativo — `her/audio/loudness.py`, senza
+dipendenze, filtro applicato via FFT a blocchi. Ogni voce viene portata a
+`target_lufs` (−16, il valore tipico dei podcast) e la voce del conduttore viene
+anche compressa (`compress_host`, ratio 3): una voce al microfono è dinamica,
+una sintetica è densa, e a parità di misura la prima sembra più lontana. La
+correzione totale resta limitata a `max_match_db`, compreso il recupero dopo la
+compressione, per non amplificare il fruscio di una traccia quasi muta;
+`host_gain_db`/`guest_gain_db` sono il ritocco manuale, applicato per ultimo.
+
+**I tagli lasciano un margine** (`edge_pad_in_s`, `edge_pad_out_s`): l'endpointer
+chiude sul silenzio, e senza margine il montato mangia l'attacco e la coda delle
+parole. Il margine non invade mai il turno precedente della stessa voce.
 
 Se preferisci montare a mano, hai già tutto: `host.wav` e `guest.wav` sono
 allineati campione per campione, quindi li importi come due tracce in Reaper,

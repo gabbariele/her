@@ -219,13 +219,25 @@ class RenderConfig:
     tail_s: float = 0.8
     #: fade su ogni segmento, in millisecondi: toglie i click ai tagli
     fade_ms: int = 12
+    #: margine tenuto prima e dopo ogni turno. Il rilevatore di voce chiude sul
+    #: silenzio, e senza margine il montaggio mangia attacchi e code delle parole
+    edge_pad_in_s: float = 0.15
+    edge_pad_out_s: float = 0.30
     #: picco di normalizzazione in dBFS
     peak_dbfs: float = -1.0
     #: pareggia il volume delle due voci prima di mixarle: un microfono più
     #: basso della voce sintetica è la norma, e a orecchio dà molto fastidio
     match_loudness: bool = True
-    #: livello di riferimento del parlato (RMS in dBFS) a cui portare le voci
-    target_dbfs: float = -20.0
+    #: volume percepito a cui portare le due voci (LUFS: lo standard con cui si
+    #: normalizzano i podcast è fra -16 e -14)
+    target_lufs: float = -16.0
+    #: comprime la dinamica della voce del conduttore: una voce al microfono ha
+    #: picchi e valli, una sintetica no, e a parità di misura sembra più lontana
+    compress_host: bool = True
+    compress_guest: bool = False
+    compress_ratio: float = 3.0
+    #: soglia del compressore, relativa al target (sotto il target = più deciso)
+    compress_threshold_offset_db: float = -6.0
     #: quanto si può correggere al massimo, per non tirare su anche il rumore
     max_match_db: float = 18.0
     #: ritocco manuale per traccia, applicato dopo il pareggio (dB)

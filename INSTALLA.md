@@ -249,24 +249,33 @@ senza cuffie quella sarebbe la sua voce rientrata nel microfono, e la sentiresti
 doppia. Se registri in cuffia e vuoi tenere anche quello, nel preset sotto
 `render:` scrivi `recover_over_guest: true`.
 
-**I volumi si pareggiano da soli.** Un microfono è quasi sempre più basso di
-una voce sintetica, quindi prima di mixare il programma misura quanto forte
-parli tu e quanto forte parla l'ospite, e porta le due voci allo stesso
-livello. A fine montaggio te lo dice:
+**I volumi si pareggiano da soli.** Prima di mixare, il programma misura quanto
+forte suonano le due voci — non l'ampiezza del segnale, ma il **volume
+percepito** in LUFS, la stessa unità con cui si normalizzano i podcast — e le
+porta entrambe a −16 LUFS. Poi comprime leggermente la tua voce: una voce al
+microfono ha picchi e valli, quella sintetica no, e senza compressione le tue
+parole dette piano restano sotto. A fine montaggio te lo dice:
 
 ```
-Volumi:    tu -33 dB, l'ospite -13 dB → corretti di +13 e -7 dB
+Volumi:    tu -26.2 LUFS, l'ospite -19.2 LUFS → corretti di +8.9 e +1.9 dB
+           (la tua voce è stata anche compressa)
 ```
 
-Non serve ritoccare niente in Audacity. Se il tuo microfono è *molto* basso
-(correzione oltre +14 dB) te lo segnala: in quel caso conviene alzarlo alla
-fonte, in **Impostazioni di Windows → Sistema → Audio → Microfono → Volume**,
-perché tirando su di 15 dB si tira su anche il fruscio della stanza.
+Non serve ritoccare niente in Audacity. Se il tuo microfono è molto basso te lo
+segnala: conviene alzarlo alla fonte, in **Impostazioni di Windows → Sistema →
+Audio → Microfono → Volume**, perché tirando su di 15 dB si tira su anche il
+fruscio della stanza.
 
-Per un ritocco manuale, nel preset sotto `render:` puoi aggiungere
-`host_gain_db: 3` (o un numero negativo per abbassare): si somma alla
-correzione automatica. E con `match_loudness: false` il pareggio si spegne del
-tutto.
+Nel preset, sotto `render:`, puoi ritoccare: `host_gain_db: 3` alza la tua voce
+di 3 dB rispetto al pareggio, `target_lufs: -14` fa un podcast più «forte»,
+`compress_host: false` toglie la compressione, `match_loudness: false` spegne
+tutto il meccanismo.
+
+**I tagli lasciano un margine.** Il rilevatore di voce chiude il turno appena
+sente silenzio, e senza margine il montaggio mangerebbe l'ultima sillaba. Ogni
+turno viene allargato di 0,15 s davanti e 0,30 s dietro (`edge_pad_in_s` e
+`edge_pad_out_s` sotto `render:`). Se senti ancora parole tagliate, alzali; se
+senti troppo respiro fra un turno e l'altro, abbassali.
 
 > Il **saluto iniziale** dell'ospite viene lasciato fuori dal montato: tanto lo
 > taglieresti a mano. Nella registrazione integrale c'è. Se lo vuoi tenere anche
