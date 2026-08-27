@@ -52,6 +52,8 @@ class RenderResult:
     unmatched_host_s: float = 0.0
     #: spezzoni della tua voce rimessi nel montato guardando l'audio
     recovered: list[dict] = field(default_factory=list)
+    #: timeline ricostruita dall'audio perché events.jsonl mancava
+    derived_timeline: bool = False
 
     @property
     def saved(self) -> float:
@@ -177,6 +179,27 @@ def recover_host_events(
         for a, b in _mask_to_spans(mask, frame, sr)
         if b - a >= cfg.recover_min_s
     ]
+
+
+def derive_events_from_audio(
+    host: np.ndarray, guest: np.ndarray, sr: int, cfg: RenderConfig
+) -> list[dict]:
+    """Una timeline ricavata dal solo audio, quando quella scritta non c'è.
+
+    Se `events.jsonl` è andato perduto il montaggio non saprebbe dove tagliare
+    e restituirebbe la registrazione intera. Le due tracce però dicono già
+    tutto: la voce dell'ospite è esattamente dove la sua traccia non è muta.
+    """
+    frame = max(1, int(sr * 0.05))
+    pad = int(round(cfg.recover_pad_s * sr / frame))
+    guest_spans = _mask_to_spans(_dilate(speech_mask(guest, frame), pad), frame, sr)
+    events = [
+        {"speaker": "guest", "start": round(a, 3), "end": round(b, 3), "text": "", "kind": "audio"}
+        for a, b in guest_spans
+        if b - a >= cfg.recover_min_s
+    ]
+    events += recover_host_events(host, guest, [], sr, cfg)
+    return sorted(events, key=lambda e: (e["start"], e["end"]))
 
 
 def unmatched_host_seconds(host: np.ndarray, events: list[dict], sr: int) -> float:
@@ -324,6 +347,12 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
     events = [e for e in all_events if e["speaker"] in tracks]
     if cfg.drop_greeting:
         events = [e for e in events if e.get("kind") != "greeting"]
+
+    derived = False
+    if not events:
+        # timeline persa: la si ricava dall'audio, invece di rinunciare a tagliare
+        events = derive_events_from_audio(host, guest, sr, cfg)
+        derived = bool(events)
     if not events:
         # niente timeline: il montato è la registrazione integrale, meglio di niente
         out = write_wav(session_dir / "podcast.wav", integrale, sr)
@@ -332,7 +361,7 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
                             raw_duration, [], levels)
 
     recovered: list[dict] = []
-    if cfg.recover_host_audio:
+    if cfg.recover_host_audio and not derived:
         # quello che hai detto non deve dipendere da cosa ha capito la
         # trascrizione: i pezzi mancanti si ritrovano guardando l'audio
         recovered = recover_host_events(host, guest, events, sr, cfg)
@@ -368,6 +397,7 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
         levels=levels,
         unmatched_host_s=unmatched_host_seconds(host, events, sr),
         recovered=recovered,
+        derived_timeline=derived,
     )
 
 

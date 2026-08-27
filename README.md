@@ -191,7 +191,13 @@ her render sessions/20260826-201500 --max-gap 0.25   # ritmo serrato
 her render sessions/20260826-201500 --max-gap 1.2    # più respiro
 ```
 
-Senza argomenti monta l'ultima puntata registrata (è quello che fa `monta.bat`).
+Senza argomenti monta l'ultima puntata *registrata* — l'ordine viene dalla data
+di `host.wav`, non da quella della cartella, che cambia a ogni montaggio.
+`--scegli` fa scegliere dall'elenco (è quello che fa `monta.bat`), `--tutte`
+rimonta tutto. `her analizza` è la radiografia di una puntata senza toccarla:
+turni in timeline, volumi misurati, spezzoni recuperati, età del montato.
+Se `events.jsonl` manca o è vuoto la timeline viene ricostruita ascoltando le
+due tracce, così i tagli si fanno lo stesso.
 Il saluto iniziale dell'ospite resta fuori dal montato (`render.drop_greeting`,
 attivo di default) ma è nella registrazione integrale.
 Oltre al montato produce sempre `registrazione-integrale.wav`: le due voci

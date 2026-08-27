@@ -219,8 +219,8 @@ elenca le registrazioni una per una e dice quali file ha e quali le mancano.
 > `.wav` è già pronto e lo pubblichi uguale. Se lo vuoi, scaricalo da
 > [ffmpeg.org](https://ffmpeg.org/download.html).
 
-**Rimontare a mano.** Doppio clic su **`monta.bat`**: rimonta l'ultima puntata
-registrata. Serve quando il montaggio non è stato scritto (finestra chiusa
+**Rimontare a mano.** Doppio clic su **`monta.bat`**: ti mostra l'elenco delle
+puntate e ti fa scegliere quale rimontare (Invio = la più recente, `T` = tutte). Serve quando il montaggio non è stato scritto (finestra chiusa
 troppo presto) o quando vuoi solo rifarlo.
 
 Per cambiare il ritmo, apri il Prompt dei comandi nella cartella:
@@ -446,7 +446,9 @@ sostituiti: se ne avevi modificato uno, lo ritrovi lì.
 | L'ospite non sa niente della puntata | Non hai preparato il contesto: doppio clic su `contesto.bat` prima di registrare. |
 | Un link non viene letto | PDF, video e pagine che richiedono login non si leggono: copia il testo dentro `contesto.md`. |
 | Hai cambiato una pagina e l'ospite ha la versione vecchia | È in cache: `.venv\Scripts\her.exe contesto --ricarica`. |
-| Non capisci quali file hai e quali no | Doppio clic su `stato.bat`: elenca le puntate e dice riga per riga cosa c'è e cosa manca. |
+| Non capisci quali file hai e quali no | Doppio clic su `stato.bat`: elenca le puntate, quando sono state registrate e cosa manca a ciascuna. |
+| Il montaggio sembra vecchio o sbagliato | Doppio clic su `analizza.bat`: dice cosa c'è dentro l'ultima puntata, che volumi ha misurato, quanti turni ha in timeline e quando è stato scritto `podcast.wav`. È la cosa da incollare quando qualcosa non torna. |
+| «il montaggio è più VECCHIO della registrazione» | Il montato è di prima: rimonta quella puntata con `monta.bat` (te la fa scegliere dall'elenco). |
 | La voce ha l'accento straniero | La pronuncia la impone già `language: it`; l'accento dipende dalla voce: prendine una italiana dalla Voice Library (passo 5). |
 | *"Manca: gemini"*, *"Manca: openai"* o *"tts.voice_id"* | Chiavi non salvate: rileggi i passi 4 e 5. Attenzione agli spazi. |
 | *"trascrizione fallita: manca OPENAI_API_KEY"* | Stai usando un preset su OpenAI: metti `HER_PRESET=gemini` nel `.env`. |

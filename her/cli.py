@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import __version__
+from . import __version__, code_date
 from .config import (
     DEFAULT_MODELS,
     ELEVEN_KEYS,
@@ -162,6 +162,8 @@ def cmd_check(args: argparse.Namespace) -> int:
         ("Gemini", api_key(*GEMINI_KEYS)),
         ("ElevenLabs", api_key(*ELEVEN_KEYS)),
     ]
+    print(f"Programma: her {__version__}, codice del {code_date()}")
+    print()
     print("Chiavi API:")
     for name, key in rows:
         print(f"  {'OK ' if key else '-- '} {name:<12} {('…' + key[-4:]) if key else 'assente'}")
@@ -266,32 +268,81 @@ def cmd_record(args: argparse.Namespace) -> int:
         return 1
 
 
-def latest_session(root: str = "sessions") -> Path | None:
-    """L'ultima puntata registrata: è quasi sempre quella che si vuole montare."""
+def recorded_at(session_dir: Path) -> float:
+    """Quando è stata *registrata* la puntata.
+
+    Non la data della cartella: quella cambia a ogni montaggio, e basta
+    rimontare una puntata vecchia perché diventi «l'ultima».
+    """
+    host = session_dir / "host.wav"
+    if host.exists():
+        return host.stat().st_mtime
+    return session_dir.stat().st_mtime
+
+
+def list_sessions(root: str = "sessions") -> list[Path]:
+    """Le puntate, dalla più recente alla più vecchia."""
     base = Path(root)
     if not base.exists():
-        return None
+        return []
     sessions = [d for d in base.iterdir() if d.is_dir() and (d / "host.wav").exists()]
+    return sorted(sessions, key=recorded_at, reverse=True)
+
+
+def latest_session(root: str = "sessions") -> Path | None:
+    sessions = list_sessions(root)
+    return sessions[0] if sessions else None
+
+
+def choose_session(root: str) -> list[Path]:
+    """Chiede quale puntata montare, invece di indovinare."""
+    from .audio.wavio import wav_duration
+
+    sessions = list_sessions(root)
     if not sessions:
-        return None
-    return max(sessions, key=lambda d: d.stat().st_mtime)
+        return []
+    print("Puntate registrate (la più recente per prima):\n")
+    for i, session in enumerate(sessions[:20], start=1):
+        stato = "già montata" if (session / "podcast.wav").exists() else "DA MONTARE"
+        print(f"  {i}) {session.name}   {_mmss(wav_duration(session / 'host.wav'))}   {stato}")
+    print()
+    try:
+        risposta = input("Quale monto? [numero, T = tutte, Invio = la più recente] ").strip().lower()
+    except EOFError:
+        risposta = ""
+    if risposta in ("t", "tutte"):
+        return sessions
+    if risposta.isdigit() and 1 <= int(risposta) <= len(sessions[:20]):
+        return [sessions[int(risposta) - 1]]
+    return sessions[:1]
 
 
 def cmd_render(args: argparse.Namespace) -> int:
     cfg = _load(args)
     if args.session:
-        session_dir = Path(args.session)
+        targets = [Path(args.session)]
+    elif args.tutte:
+        targets = list_sessions(args.sessions)
+    elif args.scegli:
+        targets = choose_session(args.sessions)
     else:
-        session_dir = latest_session(args.sessions)
-        if session_dir is None:
-            print(f"Nessuna puntata trovata in {args.sessions}/. "
-                  "Indica la cartella: her render sessions\\<nome>", file=sys.stderr)
-            return 1
-        print(f"Ultima puntata: {session_dir}")
-    if not (session_dir / "host.wav").exists():
-        print(f"{session_dir} non sembra una sessione (manca host.wav).", file=sys.stderr)
+        latest = latest_session(args.sessions)
+        targets = [latest] if latest else []
+
+    if not targets:
+        print(f"Nessuna puntata trovata in {args.sessions}/. "
+              "Indica la cartella: her render sessions\\<nome>", file=sys.stderr)
         return 1
-    return _render(session_dir, cfg)
+
+    esito = 0
+    for session_dir in targets:
+        if not (session_dir / "host.wav").exists():
+            print(f"{session_dir} non sembra una puntata (manca host.wav).", file=sys.stderr)
+            esito = 1
+            continue
+        print(f"\n=== {session_dir} ===")
+        esito = _render(session_dir, cfg) or esito
+    return esito
 
 
 def _render(session_dir: Path, cfg: Config) -> int:
@@ -301,6 +352,12 @@ def _render(session_dir: Path, cfg: Config) -> int:
         print(f"MP3:       {result.mp3}")
     print(f"Integrale: {result.full}  ({_mmss(result.raw_duration)}, tutto, pause comprese)")
     print(f"Testi:     {result.transcript} · {result.srt}")
+    if result.derived_timeline:
+        print("\n!! events.jsonl mancante o vuoto: ho ricostruito i turni ascoltando le due")
+        print("   tracce. I tagli ci sono, ma senza trascrizione e col saluto iniziale dentro.")
+    elif not result.segments:
+        print("\n!! Nessun turno e nessun parlato riconoscibile: il «montato» è la")
+        print("   registrazione intera, senza tagli. Controlla con: stato.bat")
     _print_levels(result.levels)
     if result.recovered:
         quanti = len(result.recovered)
@@ -313,7 +370,11 @@ def _render(session_dir: Path, cfg: Config) -> int:
               "montato: è parlato\n            sovrapposto alla voce dell'ospite (in cuffia? "
               "aggiungi `recover_over_guest: true`\n            sotto `render:` nel preset). "
               "L'audio è comunque in registrazione-integrale.wav.")
-    print("\nDa pubblicare è il file «podcast»: le due voci insieme, senza i vuoti.")
+    from datetime import datetime
+
+    scritto = datetime.fromtimestamp(result.wav.stat().st_mtime).strftime("%d/%m/%Y %H:%M:%S")
+    coda = "" if result.segments else " (attenzione: senza tagli, vedi sopra)"
+    print(f"\nScritto adesso ({scritto}). Da pubblicare è il file «podcast»{coda}.")
     return 0
 
 
@@ -349,6 +410,62 @@ SESSION_FILES = [
 ]
 
 
+def cmd_analyze(args: argparse.Namespace) -> int:
+    """Radiografia di una puntata, senza toccare niente: cosa c'è e cosa farebbe il montaggio."""
+    from collections import Counter
+
+    from .audio.recorder import read_events
+    from .audio.wavio import read_wav, wav_duration
+    from .render import measure_levels, plan_timeline, recover_host_events, unmatched_host_seconds
+
+    cfg = _load(args)
+    session_dir = Path(args.session) if args.session else latest_session(args.sessions)
+    if session_dir is None or not (session_dir / "host.wav").exists():
+        print("Nessuna puntata da analizzare.", file=sys.stderr)
+        return 1
+
+    print(f"her {__version__}, codice del {code_date()}")
+    print(f"\nPuntata: {session_dir}")
+    print(f"  registrata: {_mmss(wav_duration(session_dir / 'host.wav'))} di traccia")
+
+    host, sr = read_wav(session_dir / "host.wav")
+    guest, _ = read_wav(session_dir / "guest.wav")
+    events = read_events(session_dir)
+    kinds = Counter(f"{e['speaker']}/{e.get('kind', 'turno')}" for e in events)
+    print(f"  turni in timeline: {len(events)}" + (f"  ({dict(kinds)})" if events else ""))
+    if not events:
+        print("  !! events.jsonl è vuoto o assente: senza timeline il montaggio non taglia niente")
+
+    usable = [e for e in events if e["speaker"] in ("host", "guest")]
+    if cfg.render.drop_greeting:
+        usable = [e for e in usable if e.get("kind") != "greeting"]
+    recovered = recover_host_events(host, guest, usable, sr, cfg.render) if cfg.render.recover_host_audio else []
+    piano = plan_timeline(sorted(usable + recovered, key=lambda e: e["start"]), cfg.render)
+
+    levels = measure_levels({"host": host, "guest": guest}, usable, sr, cfg.render)
+    print(f"  volumi: tu {levels.host_dbfs:.0f} dB, ospite {levels.guest_dbfs:.0f} dB "
+          f"→ correzione {levels.host_gain_db:+.0f} / {levels.guest_gain_db:+.0f} dB"
+          if levels.host_dbfs is not None and levels.guest_dbfs is not None else "  volumi: non misurabili")
+    print(f"  bilanciamento attivo: {cfg.render.match_loudness} · "
+          f"recupero audio: {cfg.render.recover_host_audio} · pausa max: {cfg.render.max_gap_s}s")
+    print(f"  spezzoni recuperati: {len(recovered)}")
+    print(f"  fuori dal montato: {_mmss(unmatched_host_seconds(host, usable + recovered, sr))}")
+    if piano:
+        print(f"  montato previsto: {_mmss(max(p['end'] for p in piano) + cfg.render.tail_s)} "
+              f"in {len(piano)} pezzi")
+
+    montato = session_dir / "podcast.wav"
+    if montato.exists():
+        from datetime import datetime
+
+        quando = datetime.fromtimestamp(montato.stat().st_mtime).strftime("%d/%m/%Y %H:%M:%S")
+        stato = "VECCHIO (rimonta)" if montato.stat().st_mtime < recorded_at(session_dir) - 1 else "aggiornato"
+        print(f"  podcast.wav: {_mmss(wav_duration(montato))}, scritto il {quando} — {stato}")
+    else:
+        print("  podcast.wav: NON C'È")
+    return 0
+
+
 def cmd_sessions(args: argparse.Namespace) -> int:
     """Elenca le puntate e dice quali file ha ciascuna: serve a capire dove si è fermato."""
     base = Path(args.sessions)
@@ -360,9 +477,15 @@ def cmd_sessions(args: argparse.Namespace) -> int:
         print(f"Nessuna puntata in {base}/.")
         return 0
 
+    from datetime import datetime
+
+    from .audio.wavio import wav_duration
+
     incomplete = []
-    for session in sessions:
-        print(f"\n{session}")
+    for session in sorted(sessions, key=recorded_at):
+        quando = datetime.fromtimestamp(recorded_at(session)).strftime("%d/%m/%Y %H:%M")
+        durata = _mmss(wav_duration(session / "host.wav"))
+        print(f"\n{session}   registrata il {quando}, {durata}")
         for name, what in SESSION_FILES:
             path = session / name
             if path.exists():
@@ -374,6 +497,11 @@ def cmd_sessions(args: argparse.Namespace) -> int:
                 print(f"  --  {name:<28} MANCA          {what}")
                 if name != "podcast.mp3":
                     incomplete.append(session)
+        montato = session / "podcast.wav"
+        if montato.exists() and montato.stat().st_mtime < recorded_at(session) - 1:
+            print("  !!  il montaggio è più VECCHIO della registrazione: rimontala (monta.bat)")
+            incomplete.append(session)
+
     if incomplete:
         print("\nA qualche puntata manca il montaggio: doppio clic su monta.bat "
               "(rimonta l'ultima) oppure:")
@@ -414,7 +542,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="her",
         description="Registra un podcast conversando in tempo reale con un ospite AI.",
     )
-    parser.add_argument("--version", action="version", version=f"her {__version__}")
+    parser.add_argument("--version", action="version",
+                        version=f"her {__version__} (codice del {code_date()})")
     parser.add_argument("--env", default=".env", help="file con le chiavi API (default: .env)")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -476,7 +605,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_ren = sub.add_parser("render", help="monta una sessione già registrata")
     common(p_ren, full=False)
-    p_ren.add_argument("session", nargs="?", help="cartella della puntata (default: l'ultima)")
+    p_ren.add_argument("session", nargs="?", help="cartella della puntata (default: l'ultima registrata)")
+    p_ren.add_argument("--scegli", action="store_true", help="chiede quale puntata montare")
+    p_ren.add_argument("--tutte", action="store_true", help="rimonta tutte le puntate")
     p_ren.add_argument("--sessions", default="sessions", help="cartella radice delle puntate")
     p_ren.add_argument("--max-gap", type=float, help="pausa massima fra i turni (s)")
     p_ren.add_argument("--no-mp3", action="store_true")
@@ -491,6 +622,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_ctx = sub.add_parser("contesto", help="prepara e mostra il materiale della puntata")
     common(p_ctx)
     p_ctx.set_defaults(func=cmd_context)
+
+    p_ana = sub.add_parser("analizza", help="radiografia di una puntata, senza modificarla")
+    common(p_ana, full=False)
+    p_ana.add_argument("session", nargs="?", help="cartella della puntata (default: l'ultima)")
+    p_ana.add_argument("--sessions", default="sessions", help="cartella radice delle puntate")
+    p_ana.set_defaults(func=cmd_analyze)
 
     p_ses = sub.add_parser("sessioni", help="elenca le puntate e i file di ciascuna")
     p_ses.add_argument("--sessions", default="sessions", help="cartella radice delle puntate")
@@ -518,8 +655,13 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         return args.func(args)
+    except PermissionError as exc:
+        print(f"Errore: non riesco a scrivere {getattr(exc, 'filename', '')}: "
+              "il file è aperto in un altro programma? Chiudi il lettore audio e riprova.",
+              file=sys.stderr)
+        return 1
     except (AudioUnavailable, SttError, LlmError, TtsError, ModelsError,
-            FileNotFoundError, ValueError) as exc:
+            FileNotFoundError, ValueError, OSError) as exc:
         print(f"Errore: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

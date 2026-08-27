@@ -57,6 +57,16 @@ def read_wav(path: str | Path) -> tuple[np.ndarray, int]:
     return samples, rate
 
 
+def wav_duration(path: str | Path) -> float:
+    """Durata in secondi leggendo solo l'intestazione."""
+    try:
+        with wave.open(str(path), "rb") as wf:
+            rate = wf.getframerate()
+            return wf.getnframes() / rate if rate else 0.0
+    except (OSError, wave.Error):
+        return 0.0
+
+
 class WavWriter:
     """Writer incrementale: si può scrivere mentre la sessione è in corso."""
 

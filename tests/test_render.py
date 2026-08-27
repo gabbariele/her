@@ -77,11 +77,13 @@ def test_render_produces_shorter_audio_and_texts(tmp_path):
     assert "-->" in srt and srt.startswith("1\n")
 
 
-def test_render_without_events_falls_back_to_full_mix(tmp_path):
+def test_render_without_events_still_cuts_using_the_audio(tmp_path):
     d = _session(tmp_path, [], host_spans=[(1, 2)], guest_spans=[(4, 5)], length=10.0)
     (d / "events.jsonl").write_text("", encoding="utf-8")
     result = render_session(d, RenderConfig(mp3=False))
-    assert abs(result.duration - 10.0) < 0.01
+    assert result.derived_timeline
+    assert result.duration < 5.0                       # non più i 10 secondi interi
+    assert result.raw_duration == 10.0
 
 
 def test_gains_are_applied(tmp_path):
@@ -347,3 +349,29 @@ def test_the_guests_voice_bleeding_into_the_mic_is_not_recovered(tmp_path):
     # se lo si chiede esplicitamente, invece, si recupera anche il sovrapposto
     con_sovrapposti = render_session(tmp_path, RenderConfig(mp3=False, recover_over_guest=True))
     assert len(con_sovrapposti.recovered) == 2
+
+
+def test_a_lost_timeline_is_rebuilt_from_the_audio(tmp_path):
+    """Se events.jsonl sparisce, il montaggio non deve rinunciare a tagliare."""
+    host = np.zeros(30 * SR, dtype=np.int16)
+    guest = np.zeros(30 * SR, dtype=np.int16)
+    host[2 * SR:5 * SR] = _rumore(3, 6000, 21)
+    guest[12 * SR:17 * SR] = _rumore(5, 6000, 22)
+    host[24 * SR:26 * SR] = _rumore(2, 6000, 23)
+    write_wav(tmp_path / "host.wav", host, SR)
+    write_wav(tmp_path / "guest.wav", guest, SR)
+    (tmp_path / "events.jsonl").write_text("", encoding="utf-8")
+
+    result = render_session(tmp_path, RenderConfig(mp3=False))
+    assert result.derived_timeline
+    assert [s["speaker"] for s in result.segments] == ["host", "guest", "host"]
+    assert result.duration < 14.0                      # i vuoti sono stati tagliati
+    assert result.raw_duration == 30.0
+
+
+def test_two_silent_tracks_still_produce_a_file(tmp_path):
+    write_wav(tmp_path / "host.wav", np.zeros(5 * SR, dtype=np.int16), SR)
+    write_wav(tmp_path / "guest.wav", np.zeros(5 * SR, dtype=np.int16), SR)
+    (tmp_path / "events.jsonl").write_text("", encoding="utf-8")
+    result = render_session(tmp_path, RenderConfig(mp3=False))
+    assert not result.derived_timeline and result.wav.exists()
