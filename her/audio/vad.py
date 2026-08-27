@@ -59,7 +59,8 @@ class Endpointer:
     def __init__(self, cfg: VadConfig):
         self.cfg = cfg
         self.noise_db = -60.0
-        self._calibrated_frames = 0
+        self._calib_levels: list[float] = []
+        self.heard_speech_while_calibrating = False
         self._speaking = False
         self._speech_frames = 0
         self._silence_frames = 0
@@ -70,6 +71,21 @@ class Endpointer:
         self._speech_needed = max(1, int(cfg.min_speech_ms / cfg.frame_ms))
         self._max_frames = int(cfg.max_utterance_s * 1000 / cfg.frame_ms)
         self._calib_frames = max(1, int(cfg.calibration_s * 1000 / cfg.frame_ms))
+
+    def _finish_calibration(self) -> None:
+        """Fondo di rumore = i frame più silenziosi, non la media.
+
+        Con la media bastava un «buongiorno» detto durante la calibrazione per
+        alzare il fondo e rendere sorda la soglia per tutta la puntata.
+        """
+        levels = sorted(self._calib_levels)
+        quiet = levels[: max(1, len(levels) // 5)]          # il 20% più silenzioso
+        self.noise_db = sum(quiet) / len(quiet)
+        self.heard_speech_while_calibrating = levels[-1] > self.noise_db + self.cfg.threshold_db
+
+    @property
+    def calibrated(self) -> bool:
+        return len(self._calib_levels) >= self._calib_frames
 
     # -- stato ------------------------------------------------------------
     @property
@@ -95,11 +111,10 @@ class Endpointer:
     def push(self, frame: np.ndarray) -> Optional[tuple[str, Optional[np.ndarray]]]:
         level = rms_dbfs(frame)
 
-        if self._calibrated_frames < self._calib_frames:
-            # media mobile sul rumore di fondo iniziale
-            n = self._calibrated_frames
-            self.noise_db = level if n == 0 else (self.noise_db * n + level) / (n + 1)
-            self._calibrated_frames += 1
+        if len(self._calib_levels) < self._calib_frames:
+            self._calib_levels.append(level)
+            if len(self._calib_levels) == self._calib_frames:
+                self._finish_calibration()
             return None
 
         is_speech = level > self.threshold_db

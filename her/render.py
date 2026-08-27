@@ -48,6 +48,8 @@ class RenderResult:
     raw_duration: float
     segments: list[dict]
     levels: Levels = field(default_factory=Levels)
+    #: secondi di voce del conduttore rimasti fuori dai turni riconosciuti
+    unmatched_host_s: float = 0.0
 
     @property
     def saved(self) -> float:
@@ -94,6 +96,33 @@ def speech_level_dbfs(
         voiced = energy
     level = float(10.0 * np.log10(np.mean(voiced)))
     return level if np.isfinite(level) else None
+
+
+def unmatched_host_seconds(host: np.ndarray, events: list[dict], sr: int) -> float:
+    """Quanti secondi di voce del conduttore restano fuori dai turni riconosciuti.
+
+    Serve a rispondere alla domanda «ho perso qualcosa?»: se hai parlato mentre
+    l'ospite parlava, o prima del via, quell'audio è nella registrazione
+    integrale ma non nel montato, e conviene dirlo invece di lasciarlo scoprire.
+    """
+    if host.size == 0:
+        return 0.0
+    frame = max(1, int(sr * 0.05))
+    usable = (host.size // frame) * frame
+    if usable < frame:
+        return 0.0
+    frames = host[:usable].reshape(-1, frame).astype(np.float32) / 32768.0
+    energy = np.mean(frames * frames, axis=1)
+    db = 10.0 * np.log10(np.maximum(energy, 1e-12))
+    speech = db > max(np.max(db) - 25.0, -55.0)
+
+    for ev in events:
+        if ev["speaker"] != "host":
+            continue
+        start = max(0, int(float(ev["start"]) * sr) // frame)
+        end = min(speech.size, int(np.ceil(float(ev["end"]) * sr / frame)))
+        speech[start:end] = False
+    return float(np.count_nonzero(speech) * frame / sr)
 
 
 def measure_levels(
@@ -249,6 +278,7 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
         raw_duration=raw_duration,
         segments=plan,
         levels=levels,
+        unmatched_host_s=unmatched_host_seconds(host, events, sr),
     )
 
 
@@ -288,11 +318,15 @@ def _speaker_label(session_dir: Path, speaker: str) -> str:
     return "Conduttore" if speaker == "host" else "Ospite"
 
 
+def _label_text(item: dict) -> str:
+    return item["text"] or "(non trascritto)"
+
+
 def _write_transcript(session_dir: Path, plan: list[dict]) -> Path:
     lines = [f"# Trascrizione - {session_dir.name}", ""]
     for item in plan:
         who = _speaker_label(session_dir, item["speaker"])
-        lines.append(f"**[{_timecode(item['start'])[:-4]}] {who}:** {item['text']}".rstrip())
+        lines.append(f"**[{_timecode(item['start'])[:-4]}] {who}:** {_label_text(item)}".rstrip())
         lines.append("")
     path = session_dir / "transcript.md"
     path.write_text("\n".join(lines), encoding="utf-8")
@@ -305,7 +339,7 @@ def _write_srt(session_dir: Path, plan: list[dict]) -> Path:
         who = _speaker_label(session_dir, item["speaker"])
         blocks.append(
             f"{i}\n{_timecode(item['start'])} --> {_timecode(item['end'])}\n"
-            f"{who}: {item['text']}\n"
+            f"{who}: {_label_text(item)}\n"
         )
     path = session_dir / "transcript.srt"
     path.write_text("\n".join(blocks), encoding="utf-8")

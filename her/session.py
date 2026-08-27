@@ -163,12 +163,15 @@ class PodcastSession:
 
         _note(f"calibrazione del rumore di fondo ({cfg.vad.calibration_s:g}s): resta in silenzio…")
         time.sleep(cfg.vad.calibration_s + 0.3)
+        if self.endpointer.heard_speech_while_calibrating:
+            _warn("ho sentito parlare durante la calibrazione: aspetta il «tocca a te» "
+                  "prima di iniziare, o le prime parole non finiscono nel montato")
         _note(f"soglia voce: {self.endpointer.threshold_db:.0f} dBFS")
         print(f"{Ansi.DIM}· premi INVIO quando hai finito la puntata "
               f"(così il montaggio fa in tempo a scriversi){Ansi.OFF}", flush=True)
         threading.Thread(target=self._wait_for_enter, name="stop", daemon=True).start()
         self._greet()
-        print()
+        print(f"{Ansi.HOST}→ tocca a te: parla pure.{Ansi.OFF}\n", flush=True)
 
         while not self._stop.is_set():
             try:
@@ -238,7 +241,10 @@ class PodcastSession:
             _warn(f"trascrizione fallita: {exc}")
             return
         if not text.strip():
-            _note("(turno vuoto, ignorato)")
+            # non capito ≠ non detto: l'audio c'è, e nel montato ci resta.
+            # Sparire dal montaggio quello che hai detto è il danno peggiore.
+            self.recorder.log_event("host", start, end, "", kind="unclear")
+            _note("(non trascritto: lo tengo lo stesso nel montato)")
             return
         self.recorder.log_event("host", start, end, text, stt_ms=int((time.monotonic() - t0) * 1000))
         _say(Ansi.HOST, "tu", text)

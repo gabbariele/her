@@ -168,7 +168,11 @@ microfono, di' di sì.
 Cosa succede:
 
 1. Ti scrive *"calibrazione del rumore di fondo: resta in silenzio…"*: per un
-   secondo stai zitto, sta misurando quanto è rumorosa la stanza.
+   secondo stai zitto davvero, sta misurando quanto è rumorosa la stanza.
+   Poi Nova ti saluta, e solo quando compare **`→ tocca a te: parla pure`**
+   il microfono ti sta ascoltando. Se parli prima, o mentre parla lei, quelle
+   parole finiscono nella registrazione integrale ma non nel montato — e te lo
+   dice, sia sul momento sia alla fine del montaggio.
 2. **Parla.** Fai la tua domanda come la faresti a un ospite in carne e ossa.
 3. Quando smetti, dopo il silenzio di attesa parte la trascrizione: vedi
    comparire quello che hai detto, e dopo un paio di secondi **l'ospite
@@ -436,6 +440,8 @@ sostituiti: se ne avevi modificato uno, lo ritrovi lì.
 | *"400"* / *"INVALID_ARGUMENT"* su Gemini | Un parametro non gradito da quel modello: il programma riprova da solo semplificando la richiesta e te lo dice. Se fallisce anche così, prova `thinking: auto` nel preset. |
 | Non registra niente quando parli | Permesso microfono negato, o microfono sbagliato: `.venv\Scripts\her.exe devices` mostra quali ci sono. |
 | Sento la voce dell'ospite dentro la mia traccia | Stai usando gli altoparlanti: metti le cuffie. |
+| Mi ha tagliato le prime parole (un «buongiorno») | Le hai dette prima del `→ tocca a te`, o sopra il saluto di Nova: lì il microfono non era in ascolto. Sono in `registrazione-integrale.wav`. |
+| A fine montaggio dice che parte della mia traccia è «fuori dai turni» | Stessa cosa: hai parlato quando non ti stava ascoltando. Aspetta il `→ tocca a te` e non parlarle sopra (a meno di usare `--barge-in` con le cuffie). |
 | La mia voce si sente più bassa di quella dell'ospite | Il montaggio le pareggia già da solo: guarda la riga «Volumi» a fine registrazione. Se la correzione supera +14 dB, alza il microfono in Impostazioni di Windows → Sistema → Audio. |
 | Nel montato si sente il fruscio della stanza | Il microfono è troppo basso e viene tirato su parecchio: alzalo alla fonte e riavvicinatelo alla bocca. |
 | *"401"* da ElevenLabs | Chiave sbagliata o scaduta: rigenerala su elevenlabs.io. |

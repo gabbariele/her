@@ -257,3 +257,32 @@ def test_a_silent_track_does_not_poison_the_mix(tmp_path):
     audio, _ = read_wav(result.wav)
     assert np.all(np.isfinite(audio.astype(np.float64)))
     assert np.max(np.abs(audio)) > 25000                     # la voce dell'ospite c'è
+
+
+def test_untranscribed_turns_stay_in_the_montage(tmp_path):
+    events = [
+        {"speaker": "host", "start": 1.0, "end": 2.0, "text": "", "kind": "unclear"},
+        {"speaker": "host", "start": 4.0, "end": 6.0, "text": "prima domanda"},
+        {"speaker": "guest", "start": 8.0, "end": 10.0, "text": "risposta"},
+    ]
+    d = _session(tmp_path, events, host_spans=[(1, 2), (4, 6)], guest_spans=[(8, 10)], length=12.0)
+    result = render_session(d, RenderConfig(mp3=False))
+
+    assert len(result.segments) == 3                      # il «buongiorno» c'è ancora
+    assert result.segments[0]["src_start"] == 1.0
+    assert "(non trascritto)" in result.transcript.read_text(encoding="utf-8")
+
+
+def test_speech_outside_the_recognised_turns_is_reported(tmp_path):
+    from her.render import unmatched_host_seconds
+
+    host = np.zeros(20 * SR, dtype=np.int16)
+    host[1 * SR:3 * SR] = _rumore(2, 6000, 4)          # un "buongiorno" mai riconosciuto
+    host[10 * SR:13 * SR] = _rumore(3, 6000, 5)        # un turno regolare
+    events = [{"speaker": "host", "start": 10.0, "end": 13.0, "text": "domanda"}]
+
+    perso = unmatched_host_seconds(host, events, SR)
+    assert 1.5 < perso < 2.5
+    # se il turno è riconosciuto, non risulta perso niente
+    events.append({"speaker": "host", "start": 1.0, "end": 3.0, "text": "buongiorno"})
+    assert unmatched_host_seconds(host, events, SR) < 0.3

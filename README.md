@@ -238,6 +238,15 @@ sessions/20260826-201500/
 - **Interromperlo.** Con le cuffie puoi usare `--barge-in`: parli sopra
   l'ospite e lui si zittisce a metà frase. In cuffia è naturalissimo, sugli
   altoparlanti innesca un loop.
+- **Niente di ciò che dici sparisce dal montato per colpa della trascrizione**:
+  un turno che lo STT non capisce viene registrato lo stesso (`kind: unclear`) e
+  resta nel montaggio, segnato come `(non trascritto)` nei testi. Quello che
+  invece il microfono non stava ascoltando — parlato prima del via o sopra la
+  voce dell'ospite in half-duplex — finisce solo nella registrazione integrale,
+  e il riepilogo di fine montaggio dice quanti secondi sono.
+- **La calibrazione iniziale usa i frame più silenziosi**, non la media: se
+  saluti mentre calibra, il fondo di rumore non si alza (prima bastava quello
+  per rendere sorda la soglia per tutta la puntata) e il programma ti avvisa.
 - **Se ti taglia le frasi** perché fai pause per pensare, alza l'attesa:
   `--pausa 2.2`, oppure `HER_PAUSA=2.2` nel `.env`, oppure `vad.silence_ms` nel
   preset. Il default è 1,2 s. Se invece è lento a partire, scendi a 0,8.

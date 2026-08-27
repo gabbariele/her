@@ -166,3 +166,19 @@ def test_full_recording_exists_before_any_montage(tmp_path, monkeypatch, patched
 
     # nessun montaggio è stato eseguito in questo test
     assert not (sess.dir / "podcast.wav").exists()
+
+
+def test_an_untranscribed_turn_is_not_thrown_away(tmp_path, monkeypatch, patched):
+    """Se la trascrizione non capisce, l'audio resta comunque nel montato."""
+    monkeypatch.setattr(session_module.stt_provider, "transcribe", lambda audio, sr, cfg, **kw: "   ")
+    cfg = load_config(overrides={"tts": {"voice_id": "fake"}})
+    sess = PodcastSession(cfg, tmp_path / "s3")
+    sess.recorder.write_host(np.zeros(SR, dtype=np.int16))
+    sess._handle_turn(np.ones(SR // 2, dtype=np.int16), 0.5, 1.0)
+    sess.close()
+
+    events = _raw_events(sess.dir)
+    assert len(events) == 1
+    assert events[0]["speaker"] == "host" and events[0]["kind"] == "unclear"
+    assert events[0]["end"] == 1.0
+    assert sess.turns == 0                       # nessuna risposta dell'ospite
