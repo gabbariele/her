@@ -233,6 +233,22 @@ Per cambiare il ritmo, apri il Prompt dei comandi nella cartella:
 `--max-gap` è la pausa massima lasciata fra un turno e l'altro: `0.25` è
 serrato, `1.2` è più disteso.
 
+**Quello che hai detto non si perde.** Il montaggio non si fida della
+trascrizione per decidere cosa tenere della tua voce: guarda l'audio. Se un
+pezzo non è stato riconosciuto (una parola corta, un attacco mangiato, un
+"buongiorno" isolato) viene rimesso al suo posto lo stesso, e nella
+trascrizione compare come `(non trascritto)`. A fine montaggio te lo dice:
+
+```
+Recuperati: 1 spezzone della tua voce (1s) che la trascrizione
+            non aveva riconosciuto — sono nel montato, senza testo nei testi.
+```
+
+L'unica cosa che resta fuori è il parlato **sovrapposto alla voce dell'ospite**:
+senza cuffie quella sarebbe la sua voce rientrata nel microfono, e la sentiresti
+doppia. Se registri in cuffia e vuoi tenere anche quello, nel preset sotto
+`render:` scrivi `recover_over_guest: true`.
+
 **I volumi si pareggiano da soli.** Un microfono è quasi sempre più basso di
 una voce sintetica, quindi prima di mixare il programma misura quanto forte
 parli tu e quanto forte parla l'ospite, e porta le due voci allo stesso
@@ -440,7 +456,7 @@ sostituiti: se ne avevi modificato uno, lo ritrovi lì.
 | *"400"* / *"INVALID_ARGUMENT"* su Gemini | Un parametro non gradito da quel modello: il programma riprova da solo semplificando la richiesta e te lo dice. Se fallisce anche così, prova `thinking: auto` nel preset. |
 | Non registra niente quando parli | Permesso microfono negato, o microfono sbagliato: `.venv\Scripts\her.exe devices` mostra quali ci sono. |
 | Sento la voce dell'ospite dentro la mia traccia | Stai usando gli altoparlanti: metti le cuffie. |
-| Mi ha tagliato le prime parole (un «buongiorno») | Le hai dette prima del `→ tocca a te`, o sopra il saluto di Nova: lì il microfono non era in ascolto. Sono in `registrazione-integrale.wav`. |
+| Mi ha tagliato delle parole nel montato | Non dovrebbe più: il montaggio recupera dall'audio anche ciò che la trascrizione non ha capito. Se manca ancora qualcosa, era sovrapposto alla voce dell'ospite: `recover_over_guest: true` nel preset. |
 | A fine montaggio dice che parte della mia traccia è «fuori dai turni» | Stessa cosa: hai parlato quando non ti stava ascoltando. Aspetta il `→ tocca a te` e non parlarle sopra (a meno di usare `--barge-in` con le cuffie). |
 | La mia voce si sente più bassa di quella dell'ospite | Il montaggio le pareggia già da solo: guarda la riga «Volumi» a fine registrazione. Se la correzione supera +14 dB, alza il microfono in Impostazioni di Windows → Sistema → Audio. |
 | Nel montato si sente il fruscio della stanza | Il microfono è troppo basso e viene tirato su parecchio: alzalo alla fonte e riavvicinatelo alla bocca. |

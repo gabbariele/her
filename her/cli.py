@@ -302,11 +302,17 @@ def _render(session_dir: Path, cfg: Config) -> int:
     print(f"Integrale: {result.full}  ({_mmss(result.raw_duration)}, tutto, pause comprese)")
     print(f"Testi:     {result.transcript} · {result.srt}")
     _print_levels(result.levels)
+    if result.recovered:
+        quanti = len(result.recovered)
+        durata = sum(r["end"] - r["start"] for r in result.recovered)
+        pezzi = "spezzone" if quanti == 1 else "spezzoni"
+        print(f"Recuperati: {quanti} {pezzi} della tua voce ({_mmss(durata)}) che la trascrizione"
+              "\n            non aveva riconosciuto — sono nel montato, senza testo nei testi.")
     if result.unmatched_host_s > 1.5:
-        print(f"Attenzione: {_mmss(result.unmatched_host_s)} della tua traccia sono fuori dai "
-              "turni riconosciuti\n           (hai parlato mentre parlava l'ospite, o prima del "
-              "«tocca a te»): quell'audio\n           è in registrazione-integrale.wav ma non nel "
-              "montato.")
+        print(f"Attenzione: {_mmss(result.unmatched_host_s)} della tua traccia restano fuori dal "
+              "montato: è parlato\n            sovrapposto alla voce dell'ospite (in cuffia? "
+              "aggiungi `recover_over_guest: true`\n            sotto `render:` nel preset). "
+              "L'audio è comunque in registrazione-integrale.wav.")
     print("\nDa pubblicare è il file «podcast»: le due voci insieme, senza i vuoti.")
     return 0
 

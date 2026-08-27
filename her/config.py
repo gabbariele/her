@@ -204,6 +204,16 @@ class RenderConfig:
     #: il saluto iniziale dell'ospite resta fuori dal montato (c'è comunque
     #: nella registrazione integrale)
     drop_greeting: bool = True
+    #: recupera dalla traccia del conduttore il parlato che la trascrizione non
+    #: ha riconosciuto: quello che hai detto non deve dipendere dallo STT
+    recover_host_audio: bool = True
+    #: durata minima di uno spezzone recuperato (sotto è un colpo di tosse)
+    recover_min_s: float = 0.35
+    #: margine aggiunto prima e dopo, per non tagliare l'attacco della parola
+    recover_pad_s: float = 0.2
+    #: recuperare anche il parlato sovrapposto alla voce dell'ospite. Di norma
+    #: no: senza cuffie quella è la sua voce che rientra nel microfono
+    recover_over_guest: bool = False
     #: silenzio davanti e in coda al montato
     lead_in_s: float = 0.3
     tail_s: float = 0.8

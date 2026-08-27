@@ -286,3 +286,64 @@ def test_speech_outside_the_recognised_turns_is_reported(tmp_path):
     # se il turno è riconosciuto, non risulta perso niente
     events.append({"speaker": "host", "start": 1.0, "end": 3.0, "text": "buongiorno"})
     assert unmatched_host_seconds(host, events, SR) < 0.3
+
+
+def test_speech_the_transcript_lost_is_put_back(tmp_path):
+    """Il montaggio non deve dipendere da cosa ha capito lo STT."""
+    host = np.zeros(20 * SR, dtype=np.int16)
+    guest = np.zeros(20 * SR, dtype=np.int16)
+    host[1 * SR:3 * SR] = _rumore(2, 6000, 11)          # "buongiorno" mai trascritto
+    host[12 * SR:15 * SR] = _rumore(3, 6000, 12)        # turno regolare
+    guest[5 * SR:8 * SR] = _rumore(3, 6000, 13)
+    write_wav(tmp_path / "host.wav", host, SR)
+    write_wav(tmp_path / "guest.wav", guest, SR)
+    (tmp_path / "events.jsonl").write_text(
+        json.dumps({"speaker": "guest", "start": 5, "end": 8, "text": "risposta"}) + "\n"
+        + json.dumps({"speaker": "host", "start": 12, "end": 15, "text": "domanda"}) + "\n",
+        encoding="utf-8")
+
+    result = render_session(tmp_path, RenderConfig(mp3=False))
+    assert len(result.recovered) == 1
+    ripreso = result.recovered[0]
+    assert ripreso["start"] < 1.2 and ripreso["end"] > 2.8      # con un po' di margine
+    assert [s["speaker"] for s in result.segments] == ["host", "guest", "host"]
+    assert "(non trascritto)" in result.transcript.read_text(encoding="utf-8")
+
+
+def test_recovered_pieces_never_duplicate_a_recognised_turn(tmp_path):
+    host = np.zeros(12 * SR, dtype=np.int16)
+    host[2 * SR:6 * SR] = _rumore(4, 6000, 14)
+    guest = np.zeros(12 * SR, dtype=np.int16)
+    write_wav(tmp_path / "host.wav", host, SR)
+    write_wav(tmp_path / "guest.wav", guest, SR)
+    # la trascrizione ha riconosciuto solo metà di quel turno
+    (tmp_path / "events.jsonl").write_text(
+        json.dumps({"speaker": "host", "start": 2, "end": 4, "text": "prima metà"}) + "\n",
+        encoding="utf-8")
+
+    result = render_session(tmp_path, RenderConfig(mp3=False))
+    pezzi = sorted((s["src_start"], s["src_end"]) for s in result.segments)
+    for (a1, b1), (a2, b2) in zip(pezzi, pezzi[1:]):
+        assert b1 <= a2 + 1e-6                                   # nessuna sovrapposizione
+    assert sum(b - a for a, b in pezzi) > 3.5                    # ma il turno c'è tutto
+
+
+def test_the_guests_voice_bleeding_into_the_mic_is_not_recovered(tmp_path):
+    """Senza cuffie il microfono risente l'ospite: non va rimessa la sua voce."""
+    host = np.zeros(12 * SR, dtype=np.int16)
+    guest = np.zeros(12 * SR, dtype=np.int16)
+    guest[3 * SR:7 * SR] = _rumore(4, 7000, 15)
+    host[3 * SR:7 * SR] = _rumore(4, 2000, 16)          # rientro nel microfono
+    host[9 * SR:11 * SR] = _rumore(2, 6000, 17)         # e una frase vera
+    write_wav(tmp_path / "host.wav", host, SR)
+    write_wav(tmp_path / "guest.wav", guest, SR)
+    (tmp_path / "events.jsonl").write_text(
+        json.dumps({"speaker": "guest", "start": 3, "end": 7, "text": "risposta"}) + "\n",
+        encoding="utf-8")
+
+    result = render_session(tmp_path, RenderConfig(mp3=False))
+    assert len(result.recovered) == 1
+    assert result.recovered[0]["start"] > 7.0           # solo la frase vera
+    # se lo si chiede esplicitamente, invece, si recupera anche il sovrapposto
+    con_sovrapposti = render_session(tmp_path, RenderConfig(mp3=False, recover_over_guest=True))
+    assert len(con_sovrapposti.recovered) == 2

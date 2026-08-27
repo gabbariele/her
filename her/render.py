@@ -50,6 +50,8 @@ class RenderResult:
     levels: Levels = field(default_factory=Levels)
     #: secondi di voce del conduttore rimasti fuori dai turni riconosciuti
     unmatched_host_s: float = 0.0
+    #: spezzoni della tua voce rimessi nel montato guardando l'audio
+    recovered: list[dict] = field(default_factory=list)
 
     @property
     def saved(self) -> float:
@@ -96,6 +98,85 @@ def speech_level_dbfs(
         voiced = energy
     level = float(10.0 * np.log10(np.mean(voiced)))
     return level if np.isfinite(level) else None
+
+
+def _frame_energy(track: np.ndarray, frame: int) -> np.ndarray:
+    usable = (track.size // frame) * frame
+    if usable < frame:
+        return np.zeros(0, dtype=np.float32)
+    frames = track[:usable].reshape(-1, frame).astype(np.float32) / 32768.0
+    return np.mean(frames * frames, axis=1)
+
+
+def speech_mask(track: np.ndarray, frame: int, margin_db: float = 25.0,
+                floor_dbfs: float = -55.0) -> np.ndarray:
+    """Quali frame contengono voce: sopra il fondo, e non troppo sotto i picchi."""
+    energy = _frame_energy(track, frame)
+    if energy.size == 0:
+        return np.zeros(0, dtype=bool)
+    db = 10.0 * np.log10(np.maximum(energy, 1e-12))
+    if not np.isfinite(db).any():
+        return np.zeros(energy.size, dtype=bool)
+    return db > max(float(np.max(db)) - margin_db, floor_dbfs)
+
+
+def _dilate(mask: np.ndarray, frames: int) -> np.ndarray:
+    if frames <= 0 or mask.size == 0:
+        return mask
+    window = np.ones(2 * frames + 1)
+    return np.convolve(mask.astype(np.float32), window, mode="same") > 0
+
+
+def _mask_to_spans(mask: np.ndarray, frame: int, sr: int) -> list[tuple[float, float]]:
+    spans, start = [], None
+    for i, on in enumerate(mask):
+        if on and start is None:
+            start = i
+        elif not on and start is not None:
+            spans.append((start * frame / sr, i * frame / sr))
+            start = None
+    if start is not None:
+        spans.append((start * frame / sr, mask.size * frame / sr))
+    return spans
+
+
+def recover_host_events(
+    host: np.ndarray, guest: np.ndarray, events: list[dict], sr: int, cfg: RenderConfig
+) -> list[dict]:
+    """Il parlato del conduttore che nella timeline non c'è.
+
+    Il montaggio si basa sui turni riconosciuti, ma la trascrizione può
+    perderne pezzi: senza questo recupero, quello che hai detto sparirebbe dal
+    montato per colpa di uno strumento che serviva solo a capire le parole.
+    Qui si guarda l'audio e basta.
+    """
+    frame = max(1, int(sr * 0.05))
+    mask = speech_mask(host, frame)
+    if mask.size == 0:
+        return []
+
+    if not cfg.recover_over_guest:
+        # dove parla l'ospite non si recupera: senza cuffie quella è la sua
+        # voce rientrata nel microfono, e la si sentirebbe doppia
+        guest_mask = _dilate(speech_mask(guest, frame), 4)
+        common = min(mask.size, guest_mask.size)
+        mask[:common] &= ~guest_mask[:common]
+
+    mask = _dilate(mask, int(round(cfg.recover_pad_s * sr / frame)))
+
+    # mai sovrapporsi a un turno già in timeline: sarebbe la stessa voce due volte
+    for ev in events:
+        if ev["speaker"] != "host":
+            continue
+        start = max(0, int(float(ev["start"]) * sr) // frame)
+        end = min(mask.size, int(np.ceil(float(ev["end"]) * sr / frame)))
+        mask[start:end] = False
+
+    return [
+        {"speaker": "host", "start": round(a, 3), "end": round(b, 3), "text": "", "kind": "recuperato"}
+        for a, b in _mask_to_spans(mask, frame, sr)
+        if b - a >= cfg.recover_min_s
+    ]
 
 
 def unmatched_host_seconds(host: np.ndarray, events: list[dict], sr: int) -> float:
@@ -250,6 +331,13 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
                             _no_transcript(session_dir, "srt"), integrale.size / sr,
                             raw_duration, [], levels)
 
+    recovered: list[dict] = []
+    if cfg.recover_host_audio:
+        # quello che hai detto non deve dipendere da cosa ha capito la
+        # trascrizione: i pezzi mancanti si ritrovano guardando l'audio
+        recovered = recover_host_events(host, guest, events, sr, cfg)
+        events = sorted(events + recovered, key=lambda e: (e["start"], e["end"]))
+
     plan = plan_timeline(events, cfg)
     total = max(p["end"] for p in plan) + cfg.tail_s
     mixdown = np.zeros(int(round(total * sr)) + 1, dtype=np.float32)
@@ -279,6 +367,7 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
         segments=plan,
         levels=levels,
         unmatched_host_s=unmatched_host_seconds(host, events, sr),
+        recovered=recovered,
     )
 
 

@@ -238,12 +238,14 @@ sessions/20260826-201500/
 - **Interromperlo.** Con le cuffie puoi usare `--barge-in`: parli sopra
   l'ospite e lui si zittisce a metà frase. In cuffia è naturalissimo, sugli
   altoparlanti innesca un loop.
-- **Niente di ciò che dici sparisce dal montato per colpa della trascrizione**:
-  un turno che lo STT non capisce viene registrato lo stesso (`kind: unclear`) e
-  resta nel montaggio, segnato come `(non trascritto)` nei testi. Quello che
-  invece il microfono non stava ascoltando — parlato prima del via o sopra la
-  voce dell'ospite in half-duplex — finisce solo nella registrazione integrale,
-  e il riepilogo di fine montaggio dice quanti secondi sono.
+- **Niente di ciò che dici sparisce dal montato per colpa della trascrizione.**
+  La traccia del conduttore non viene tagliata seguendo la timeline dei turni
+  riconosciuti: un VAD passa su `host.wav` e rimette nel montaggio ogni pezzo di
+  parlato che nella timeline non c'è (`kind: recuperato`, `(non trascritto)` nei
+  testi), ritagliato in modo da non sovrapporsi mai a un turno già presente.
+  Resta fuori solo il parlato sovrapposto alla voce dell'ospite, che senza
+  cuffie è il rientro della sua voce nel microfono — `recover_over_guest: true`
+  lo include comunque.
 - **La calibrazione iniziale usa i frame più silenziosi**, non la media: se
   saluti mentre calibra, il fondo di rumore non si alza (prima bastava quello
   per rendere sorda la soglia per tutta la puntata) e il programma ti avvisa.
