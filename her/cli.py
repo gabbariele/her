@@ -301,6 +301,7 @@ def _render(session_dir: Path, cfg: Config) -> int:
         print(f"MP3:       {result.mp3}")
     print(f"Integrale: {result.full}  ({_mmss(result.raw_duration)}, tutto, pause comprese)")
     print(f"Testi:     {result.transcript} · {result.srt}")
+    _print_levels(result.levels)
     print("\nDa pubblicare è il file «podcast»: le due voci insieme, senza i vuoti.")
     return 0
 
@@ -377,6 +378,17 @@ def _size(n: int) -> str:
             return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
         n /= 1024.0
     return f"{n:.1f} GB"
+
+
+def _print_levels(levels) -> None:
+    """Dice com'erano le due voci e cosa è stato fatto per pareggiarle."""
+    if levels.host_dbfs is None or levels.guest_dbfs is None:
+        return
+    print(f"Volumi:    tu {levels.host_dbfs:.0f} dB, l'ospite {levels.guest_dbfs:.0f} dB "
+          f"→ corretti di {levels.host_gain_db:+.0f} e {levels.guest_gain_db:+.0f} dB")
+    if levels.host_gain_db > 14:
+        print("           (il tuo microfono è molto basso: alzalo in Impostazioni di Windows →")
+        print("            Sistema → Audio → Microfono → Volume, così si sente meno il fruscio)")
 
 
 def cmd_presets(args: argparse.Namespace) -> int:

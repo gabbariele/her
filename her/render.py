@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +18,22 @@ import numpy as np
 from .audio.recorder import read_events
 from .audio.wavio import read_wav, write_wav
 from .config import RenderConfig
+
+
+@dataclass
+class Levels:
+    """Com'erano le due voci e quanto sono state corrette."""
+
+    host_dbfs: float | None = None
+    guest_dbfs: float | None = None
+    host_gain_db: float = 0.0
+    guest_gain_db: float = 0.0
+
+    @property
+    def gap_db(self) -> float:
+        if self.host_dbfs is None or self.guest_dbfs is None:
+            return 0.0
+        return abs(self.host_dbfs - self.guest_dbfs)
 
 
 @dataclass
@@ -31,6 +47,7 @@ class RenderResult:
     duration: float
     raw_duration: float
     segments: list[dict]
+    levels: Levels = field(default_factory=Levels)
 
     @property
     def saved(self) -> float:
@@ -39,6 +56,69 @@ class RenderResult:
 
 def _db_to_gain(db: float) -> float:
     return float(10.0 ** (db / 20.0))
+
+
+def speech_level_dbfs(
+    track: np.ndarray, sr: int, spans: list[tuple[float, float]] | None = None
+) -> float | None:
+    """Livello del parlato in dBFS, ignorando le pause.
+
+    Misurare tutta la traccia darebbe un numero senza senso: in una traccia
+    ci sono più silenzi che voce. Qui si guardano solo i pezzi in cui la
+    persona parla davvero, e all'interno di quelli solo i frame sopra il
+    fondo, così le virgole non abbassano la media.
+    """
+    if spans:
+        pieces = [_slice(track, a, b, sr) for a, b in spans]
+        pieces = [p for p in pieces if p.size]
+        audio = np.concatenate(pieces) if pieces else np.zeros(0, dtype=np.float32)
+    else:
+        audio = track.astype(np.float32)
+    if audio.size == 0:
+        return None
+
+    frame = max(1, int(sr * 0.05))
+    usable = (audio.size // frame) * frame
+    if usable < frame:
+        return None
+    frames = audio[:usable].reshape(-1, frame) / 32768.0
+    energy = np.mean(frames * frames, axis=1)
+    energy = energy[energy > 0]
+    if energy.size == 0:
+        return None
+    db = 10.0 * np.log10(energy)
+    # solo i frame vicini ai più forti: è lì che c'è la voce
+    floor = max(np.max(db) - 25.0, -60.0)
+    voiced = energy[db >= floor]
+    if voiced.size == 0:                    # traccia quasi muta: meglio di niente
+        voiced = energy
+    level = float(10.0 * np.log10(np.mean(voiced)))
+    return level if np.isfinite(level) else None
+
+
+def measure_levels(
+    tracks: dict, events: list[dict], sr: int, cfg: RenderConfig
+) -> Levels:
+    """Quanto sono distanti le due voci, e di quanto vanno corrette."""
+    levels = Levels()
+    measured = {}
+    for speaker, track in tracks.items():
+        spans = [(float(e["start"]), float(e["end"])) for e in events if e["speaker"] == speaker]
+        measured[speaker] = speech_level_dbfs(track, sr, spans or None)
+    levels.host_dbfs, levels.guest_dbfs = measured.get("host"), measured.get("guest")
+
+    if not cfg.match_loudness:
+        levels.host_gain_db = cfg.host_gain_db
+        levels.guest_gain_db = cfg.guest_gain_db
+        return levels
+
+    for speaker, extra in (("host", cfg.host_gain_db), ("guest", cfg.guest_gain_db)):
+        level = measured.get(speaker)
+        correction = 0.0
+        if level is not None and np.isfinite(level):
+            correction = float(np.clip(cfg.target_dbfs - level, -cfg.max_match_db, cfg.max_match_db))
+        setattr(levels, f"{speaker}_gain_db", correction + extra)
+    return levels
 
 
 def _fade(audio: np.ndarray, n: int) -> np.ndarray:
@@ -105,7 +185,10 @@ def write_full_mix(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
     guest, sr_g = read_wav(session_dir / "guest.wav")
     if sr_g != sr:
         raise ValueError("host.wav e guest.wav hanno sample rate diversi")
-    return write_wav(session_dir / "registrazione-integrale.wav", _mix_full(host, guest, cfg), sr)
+    events = read_events(session_dir)
+    levels = measure_levels({"host": host, "guest": guest}, events, sr, cfg)
+    mix = _mix_full(host, guest, cfg, levels)
+    return write_wav(session_dir / "registrazione-integrale.wav", mix, sr)
 
 
 def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> RenderResult:
@@ -118,12 +201,17 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
     tracks = {"host": host, "guest": guest}
     raw_duration = max(host.size, guest.size) / sr
 
+    all_events = read_events(session_dir)
+    # le due voci vanno pareggiate: un microfono è quasi sempre più basso di
+    # una voce sintetica, e la differenza si sente subito
+    levels = measure_levels(tracks, all_events, sr, cfg)
+
     # registrazione integrale: tutto quello che è successo, in un file solo,
     # con i tempi veri. È la copia di sicurezza da cui si riparte sempre.
-    integrale = _mix_full(host, guest, cfg)
+    integrale = _mix_full(host, guest, cfg, levels)
     full_path = write_wav(session_dir / "registrazione-integrale.wav", integrale, sr)
 
-    events = [e for e in read_events(session_dir) if e["speaker"] in tracks]
+    events = [e for e in all_events if e["speaker"] in tracks]
     if cfg.drop_greeting:
         events = [e for e in events if e.get("kind") != "greeting"]
     if not events:
@@ -131,12 +219,12 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
         out = write_wav(session_dir / "podcast.wav", integrale, sr)
         return RenderResult(out, full_path, _to_mp3(out, cfg), _no_transcript(session_dir),
                             _no_transcript(session_dir, "srt"), integrale.size / sr,
-                            raw_duration, [])
+                            raw_duration, [], levels)
 
     plan = plan_timeline(events, cfg)
     total = max(p["end"] for p in plan) + cfg.tail_s
     mixdown = np.zeros(int(round(total * sr)) + 1, dtype=np.float32)
-    gains = {"host": _db_to_gain(cfg.host_gain_db), "guest": _db_to_gain(cfg.guest_gain_db)}
+    gains = {"host": _db_to_gain(levels.host_gain_db), "guest": _db_to_gain(levels.guest_gain_db)}
     fade_n = int(sr * cfg.fade_ms / 1000)
 
     for item in plan:
@@ -160,18 +248,20 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
         duration=mixdown.size / sr,
         raw_duration=raw_duration,
         segments=plan,
+        levels=levels,
     )
 
 
-def _mix_full(host: np.ndarray, guest: np.ndarray, cfg: RenderConfig) -> np.ndarray:
+def _mix_full(host: np.ndarray, guest: np.ndarray, cfg: RenderConfig, levels: Levels) -> np.ndarray:
     n = max(host.size, guest.size)
     mix = np.zeros(n, dtype=np.float32)
-    mix[: host.size] += host.astype(np.float32) * _db_to_gain(cfg.host_gain_db)
-    mix[: guest.size] += guest.astype(np.float32) * _db_to_gain(cfg.guest_gain_db)
+    mix[: host.size] += host.astype(np.float32) * _db_to_gain(levels.host_gain_db)
+    mix[: guest.size] += guest.astype(np.float32) * _db_to_gain(levels.guest_gain_db)
     return _normalize(mix, cfg.peak_dbfs)
 
 
 def _normalize(mix: np.ndarray, peak_dbfs: float) -> np.ndarray:
+    mix = np.nan_to_num(mix, nan=0.0, posinf=0.0, neginf=0.0)
     peak = float(np.max(np.abs(mix))) if mix.size else 0.0
     if peak > 0:
         target = _db_to_gain(peak_dbfs) * 32767.0

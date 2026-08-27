@@ -167,3 +167,93 @@ def test_the_greeting_is_left_out_of_the_montage(tmp_path):
 
     tenuto = render_session(d, RenderConfig(mp3=False, drop_greeting=False))
     assert len(tenuto.segments) == 3
+
+
+def _rumore(seconds, ampiezza, seed):
+    rng = np.random.default_rng(seed)
+    return (rng.normal(0, ampiezza, int(seconds * SR))).astype(np.int16)
+
+
+def _sessione_sbilanciata(tmp_path, ampiezza_host=900, ampiezza_guest=7000):
+    """Microfono basso, voce sintetica alta: la situazione tipica."""
+    host = np.zeros(20 * SR, dtype=np.int16)
+    guest = np.zeros(20 * SR, dtype=np.int16)
+    host[2 * SR:5 * SR] = _rumore(3, ampiezza_host, 1)
+    guest[8 * SR:12 * SR] = _rumore(4, ampiezza_guest, 2)
+    write_wav(tmp_path / "host.wav", host, SR)
+    write_wav(tmp_path / "guest.wav", guest, SR)
+    (tmp_path / "events.jsonl").write_text(
+        json.dumps({"speaker": "host", "start": 2, "end": 5, "text": "domanda"}) + "\n"
+        + json.dumps({"speaker": "guest", "start": 8, "end": 12, "text": "risposta"}) + "\n",
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+def test_the_two_voices_come_out_balanced(tmp_path):
+    from her.render import speech_level_dbfs
+
+    d = _sessione_sbilanciata(tmp_path)
+    result = render_session(d, RenderConfig(mp3=False))
+
+    # prima: il microfono era ~18 dB sotto la voce dell'ospite
+    assert result.levels.gap_db > 12
+    assert result.levels.host_gain_db > result.levels.guest_gain_db
+
+    montato, _ = read_wav(result.wav)
+    parti = [(s["start"], s["end"], s["speaker"]) for s in result.segments]
+    livelli = {
+        speaker: speech_level_dbfs(montato, SR, [(a, b)])
+        for a, b, speaker in parti
+    }
+    # dopo: le due voci stanno entro 3 dB l'una dall'altra
+    assert abs(livelli["host"] - livelli["guest"]) < 3.0
+
+
+def test_balancing_can_be_turned_off(tmp_path):
+    d = _sessione_sbilanciata(tmp_path)
+    result = render_session(d, RenderConfig(mp3=False, match_loudness=False))
+    assert result.levels.host_gain_db == 0.0 and result.levels.guest_gain_db == 0.0
+    # i livelli vengono comunque misurati e riportati
+    assert result.levels.gap_db > 12
+
+
+def test_correction_is_capped_so_noise_is_not_amplified(tmp_path):
+    d = _sessione_sbilanciata(tmp_path, ampiezza_host=8)      # microfono quasi muto
+    result = render_session(d, RenderConfig(mp3=False, max_match_db=18.0))
+    assert result.levels.host_gain_db <= 18.0 + 1e-6
+
+
+def test_manual_trim_still_works_on_top(tmp_path):
+    d = _sessione_sbilanciata(tmp_path)
+    pari = render_session(d, RenderConfig(mp3=False))
+    piu_alto = render_session(d, RenderConfig(mp3=False, host_gain_db=6.0))
+    assert abs((piu_alto.levels.host_gain_db - pari.levels.host_gain_db) - 6.0) < 1e-6
+
+
+def test_the_full_recording_is_balanced_too(tmp_path):
+    from her.render import speech_level_dbfs, write_full_mix
+
+    d = _sessione_sbilanciata(tmp_path)
+    integrale, _ = read_wav(write_full_mix(d))
+    host = speech_level_dbfs(integrale, SR, [(2, 5)])
+    guest = speech_level_dbfs(integrale, SR, [(8, 12)])
+    assert abs(host - guest) < 3.0
+
+
+def test_a_silent_track_does_not_poison_the_mix(tmp_path):
+    """Microfono staccato: il montato deve restare valido, non diventare rumore."""
+    host = np.zeros(10 * SR, dtype=np.int16)                 # nessun segnale
+    guest = np.zeros(10 * SR, dtype=np.int16)
+    guest[2 * SR:5 * SR] = _rumore(3, 6000, 3)
+    write_wav(tmp_path / "host.wav", host, SR)
+    write_wav(tmp_path / "guest.wav", guest, SR)
+    (tmp_path / "events.jsonl").write_text(
+        json.dumps({"speaker": "host", "start": 0.5, "end": 1.5, "text": "muto"}) + "\n"
+        + json.dumps({"speaker": "guest", "start": 2, "end": 5, "text": "risposta"}) + "\n",
+        encoding="utf-8",
+    )
+    result = render_session(tmp_path, RenderConfig(mp3=False))
+    audio, _ = read_wav(result.wav)
+    assert np.all(np.isfinite(audio.astype(np.float64)))
+    assert np.max(np.abs(audio)) > 25000                     # la voce dell'ospite c'è

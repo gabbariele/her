@@ -229,6 +229,25 @@ Per cambiare il ritmo, apri il Prompt dei comandi nella cartella:
 `--max-gap` è la pausa massima lasciata fra un turno e l'altro: `0.25` è
 serrato, `1.2` è più disteso.
 
+**I volumi si pareggiano da soli.** Un microfono è quasi sempre più basso di
+una voce sintetica, quindi prima di mixare il programma misura quanto forte
+parli tu e quanto forte parla l'ospite, e porta le due voci allo stesso
+livello. A fine montaggio te lo dice:
+
+```
+Volumi:    tu -33 dB, l'ospite -13 dB → corretti di +13 e -7 dB
+```
+
+Non serve ritoccare niente in Audacity. Se il tuo microfono è *molto* basso
+(correzione oltre +14 dB) te lo segnala: in quel caso conviene alzarlo alla
+fonte, in **Impostazioni di Windows → Sistema → Audio → Microfono → Volume**,
+perché tirando su di 15 dB si tira su anche il fruscio della stanza.
+
+Per un ritocco manuale, nel preset sotto `render:` puoi aggiungere
+`host_gain_db: 3` (o un numero negativo per abbassare): si somma alla
+correzione automatica. E con `match_loudness: false` il pareggio si spegne del
+tutto.
+
 > Il **saluto iniziale** dell'ospite viene lasciato fuori dal montato: tanto lo
 > taglieresti a mano. Nella registrazione integrale c'è. Se lo vuoi tenere anche
 > nel montato, nel preset scrivi sotto `render:` la riga `drop_greeting: false`.
@@ -417,6 +436,8 @@ sostituiti: se ne avevi modificato uno, lo ritrovi lì.
 | *"400"* / *"INVALID_ARGUMENT"* su Gemini | Un parametro non gradito da quel modello: il programma riprova da solo semplificando la richiesta e te lo dice. Se fallisce anche così, prova `thinking: auto` nel preset. |
 | Non registra niente quando parli | Permesso microfono negato, o microfono sbagliato: `.venv\Scripts\her.exe devices` mostra quali ci sono. |
 | Sento la voce dell'ospite dentro la mia traccia | Stai usando gli altoparlanti: metti le cuffie. |
+| La mia voce si sente più bassa di quella dell'ospite | Il montaggio le pareggia già da solo: guarda la riga «Volumi» a fine registrazione. Se la correzione supera +14 dB, alza il microfono in Impostazioni di Windows → Sistema → Audio. |
+| Nel montato si sente il fruscio della stanza | Il microfono è troppo basso e viene tirato su parecchio: alzalo alla fonte e riavvicinatelo alla bocca. |
 | *"401"* da ElevenLabs | Chiave sbagliata o scaduta: rigenerala su elevenlabs.io. |
 | La finestra si chiude subito senza dire niente | Apri il Prompt dei comandi, trascinaci dentro il `.bat` e premi Invio: così vedi l'errore. |
 

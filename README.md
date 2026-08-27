@@ -202,6 +202,14 @@ pause a `max_gap_s`, tiene le sovrapposizioni vere (quando interrompi l'ospite),
 mette un fade di 12 ms su ogni giunta per non sentire i click, normalizza a
 −1 dBFS ed esporta WAV + MP3 + `transcript.md` + `transcript.srt`.
 
+**Pareggia anche i volumi.** Il livello del parlato di ciascuna voce viene
+misurato sui suoi turni (ignorando le pause, e all'interno dei turni i frame
+sotto il fondo, che falserebbero la media) e portato a `target_dbfs`, con la
+correzione limitata a `max_match_db` per non tirare su il rumore di una traccia
+troppo bassa. `host_gain_db`/`guest_gain_db` restano come ritocco manuale sopra
+il pareggio, e `match_loudness: false` lo disattiva. I livelli misurati e le
+correzioni applicate sono nel riepilogo di fine montaggio.
+
 Se preferisci montare a mano, hai già tutto: `host.wav` e `guest.wav` sono
 allineati campione per campione, quindi li importi come due tracce in Reaper,
 Audition o Audacity e sei a casa.

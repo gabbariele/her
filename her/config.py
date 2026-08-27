@@ -211,7 +211,14 @@ class RenderConfig:
     fade_ms: int = 12
     #: picco di normalizzazione in dBFS
     peak_dbfs: float = -1.0
-    #: guadagno per traccia (dB)
+    #: pareggia il volume delle due voci prima di mixarle: un microfono più
+    #: basso della voce sintetica è la norma, e a orecchio dà molto fastidio
+    match_loudness: bool = True
+    #: livello di riferimento del parlato (RMS in dBFS) a cui portare le voci
+    target_dbfs: float = -20.0
+    #: quanto si può correggere al massimo, per non tirare su anche il rumore
+    max_match_db: float = 18.0
+    #: ritocco manuale per traccia, applicato dopo il pareggio (dB)
     host_gain_db: float = 0.0
     guest_gain_db: float = 0.0
     #: esporta anche l'mp3 (richiede ffmpeg nel PATH)
