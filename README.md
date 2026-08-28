@@ -334,6 +334,29 @@ her/
 Il `voice_id` si può mettere nel preset oppure, più comodo, in `HER_VOICE_ID`
 dentro il `.env`: il preset ha comunque la precedenza.
 
+## Quando qualcosa si rompe a metà registrazione
+
+Una puntata dura mezz'ora e non si può rifare: il programma è scritto perché un
+guasto costi un turno, non la serata.
+
+- **Il thread che ascolta non può morire in silenzio.** Un'eccezione nel ciclo
+  del microfono lasciava la sessione viva ma sorda — nessuna trascrizione,
+  nessuna risposta, nessun messaggio. Ora ogni frame è protetto: un errore
+  isolato salta un turno, un errore sullo stream chiude l'ascolto *dicendolo*.
+  E se non arrivano frame per cinque secondi, lo segnala.
+- **Un turno che fallisce non chiude la puntata**: rete, provider, audio, quel
+  che sia — viene registrato e si va avanti.
+- **`sessione.log`** dentro la cartella della puntata: tutto quello che è
+  comparso a schermo, con l'ora, più le tracce complete degli errori.
+- **`her analizza`** confronta l'ultimo turno riconosciuto con la durata della
+  registrazione: se gli ultimi minuti non hanno turni, te lo dice e ti manda al
+  registro.
+- **`her record --continua`** riprende una puntata: la conversazione viene
+  riletta da `events.jsonl` (l'ospite ricorda), e il nuovo audio si aggiunge in
+  coda a quello esistente. Il WAV non si può allungare, quindi la traccia
+  vecchia viene messa da parte, ricopiata nella nuova e la copia di sicurezza
+  sparisce solo a chiusura riuscita.
+
 ## Limiti noti
 
 - Un solo conduttore e un solo ospite (una traccia per parte).
@@ -341,3 +364,5 @@ dentro il `.env`: il preset ha comunque la precedenza.
 - Il VAD è a energia: in una stanza molto rumorosa, o con il microfono del
   portatile a mezzo metro, va tarato a mano.
 - Niente interfaccia grafica: è un programma da terminale.
+- La ripresa riscrive le tracce per allungarle: su una puntata molto lunga
+  richiede qualche secondo e il doppio dello spazio, finché non si chiude.

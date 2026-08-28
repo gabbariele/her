@@ -182,3 +182,79 @@ def test_an_untranscribed_turn_is_not_thrown_away(tmp_path, monkeypatch, patched
     assert events[0]["speaker"] == "host" and events[0]["kind"] == "unclear"
     assert events[0]["end"] == 1.0
     assert sess.turns == 0                       # nessuna risposta dell'ospite
+
+
+def test_resuming_keeps_the_conversation_and_the_audio(tmp_path, monkeypatch, patched):
+    """Riprendere = l'ospite si ricorda, e l'audio si aggiunge in coda."""
+    from her.audio.wavio import read_wav
+
+    prima = _run_text_session(tmp_path, monkeypatch, ["parliamo di radio"])
+    battute_prima = len(prima.history)
+    durata_prima = read_wav(prima.dir / "host.wav")[0].size
+    assert battute_prima >= 2
+
+    it = iter(["e dei podcast?"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(it, ""))
+    cfg = load_config(overrides={"tts": {"voice_id": "fake"}})
+    dopo = PodcastSession(cfg, prima.dir, text_input=True, resume=True)
+    dopo.run()
+
+    # l'ospite sapeva già di cosa si era parlato
+    assert dopo.history[0]["content"] == "parliamo di radio"
+    assert len(dopo.history) > battute_prima
+    # e la traccia si è allungata invece di ripartire da zero
+    assert read_wav(dopo.dir / "host.wav")[0].size > durata_prima
+    testi = [e["text"] for e in _raw_events(dopo.dir)]
+    assert "parliamo di radio" in testi and "e dei podcast?" in testi
+
+
+def test_the_session_writes_a_log(tmp_path, monkeypatch, patched):
+    sess = _run_text_session(tmp_path, monkeypatch, ["una domanda"])
+    log = (sess.dir / "sessione.log").read_text(encoding="utf-8")
+    assert "avvio" in log and "chiusura regolare" in log
+
+
+def test_a_broken_turn_is_logged_and_the_session_survives(tmp_path, monkeypatch, patched):
+    """Il guasto di un turno non deve fermare la registrazione."""
+    chiamate = []
+
+    def a_volte_esplode(audio, sr, cfg, **kw):
+        chiamate.append(1)
+        if len(chiamate) == 1:
+            raise RuntimeError("connessione persa")
+        return "seconda domanda"
+
+    monkeypatch.setattr(session_module.stt_provider, "transcribe", a_volte_esplode)
+    cfg = load_config(overrides={"tts": {"voice_id": "fake"}})
+    sess = PodcastSession(cfg, tmp_path / "s4")
+    sess.recorder.write_host(np.zeros(SR, dtype=np.int16))
+    sess._handle_turn(np.ones(SR // 2, dtype=np.int16), 0.5, 1.0)     # va storto
+    sess._handle_turn(np.ones(SR // 2, dtype=np.int16), 1.5, 2.0)     # e questo no
+    sess.close()
+
+    assert sess.turns == 1
+    log = (sess.dir / "sessione.log").read_text(encoding="utf-8")
+    assert "connessione persa" in log
+    assert [e["speaker"] for e in _raw_events(sess.dir)] == ["host", "guest"]
+
+
+def test_a_dead_microphone_is_reported_not_ignored(tmp_path, monkeypatch, patched):
+    """Il thread che ascolta non può morire in silenzio: la sessione sembrerebbe viva."""
+    cfg = load_config(overrides={"tts": {"voice_id": "fake"}})
+    sess = PodcastSession(cfg, tmp_path / "s5")
+
+    class MicRotto:
+        def frames(self, timeout=0.5):
+            yield np.zeros(480, dtype=np.int16)
+            raise OSError("dispositivo scomparso")
+
+        def close(self):
+            pass
+
+    sess._mic = MicRotto()
+    sess._mic_loop()
+    sess.close()
+
+    assert sess.mic_failed
+    log = (sess.dir / "sessione.log").read_text(encoding="utf-8")
+    assert "microfono si è fermato" in log and "dispositivo scomparso" in log

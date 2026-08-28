@@ -22,17 +22,72 @@ from .wavio import WavWriter
 
 
 class MultitrackRecorder:
-    def __init__(self, out_dir: str | Path, sample_rate: int, wall_clock: bool = False):
+    def __init__(
+        self,
+        out_dir: str | Path,
+        sample_rate: int,
+        wall_clock: bool = False,
+        resume: bool = False,
+    ):
         self.dir = Path(out_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
         self.sample_rate = sample_rate
         self.wall_clock = wall_clock
-        self._host = WavWriter(self.dir / "host.wav", sample_rate)
-        self._guest = WavWriter(self.dir / "guest.wav", sample_rate)
+        self._backups: list[Path] = []
+        if resume:
+            self._host, self._guest = self._adopt_existing()
+        else:
+            self._host = WavWriter(self.dir / "host.wav", sample_rate)
+            self._guest = WavWriter(self.dir / "guest.wav", sample_rate)
         self._events = open(self.dir / "events.jsonl", "a", encoding="utf-8")
         self._lock = threading.Lock()
         self._t0 = time.monotonic()
         self._closed = False
+
+    def _adopt_existing(self) -> tuple[WavWriter, WavWriter]:
+        """Riparte da una puntata già registrata, senza perdere quello che c'è.
+
+        Il formato WAV non si può allungare in coda: il vecchio file viene messo
+        da parte, il nuovo riparte con dentro tutto l'audio di prima, e la copia
+        di sicurezza si cancella solo a chiusura riuscita.
+        """
+        writers = []
+        for name in ("host.wav", "guest.wav"):
+            path = self.dir / name
+            writer = None
+            if path.exists():
+                backup = path.with_name(f"{path.stem}.riprendi.bak")
+                path.replace(backup)
+                self._backups.append(backup)
+                writer = WavWriter(path, self.sample_rate)
+                self._copy_into(backup, writer)
+            writers.append(writer or WavWriter(path, self.sample_rate))
+        host, guest = writers
+        # le due tracce devono ripartire allineate
+        total = max(host.samples_written, guest.samples_written)
+        host.write_silence(total - host.samples_written)
+        guest.write_silence(total - guest.samples_written)
+        return host, guest
+
+    def _copy_into(self, source: Path, writer: WavWriter, chunk: int = 1 << 20) -> None:
+        import wave
+
+        with wave.open(str(source), "rb") as src:
+            if src.getframerate() != self.sample_rate or src.getsampwidth() != 2:
+                raise ValueError(
+                    f"{source.name}: registrata a {src.getframerate()} Hz, "
+                    f"la sessione è a {self.sample_rate} Hz: non posso riprendere"
+                )
+            while True:
+                data = src.readframes(chunk)
+                if not data:
+                    break
+                writer.write(np.frombuffer(data, dtype="<i2"))
+
+    @property
+    def resumed_from(self) -> float:
+        """Da che secondo riparte la registrazione ripresa."""
+        return self._host.samples_written / self.sample_rate
 
     # -- orologio della sessione ------------------------------------------
     def now(self) -> float:
@@ -102,6 +157,10 @@ class MultitrackRecorder:
             self._host.close()
             self._guest.close()
             self._events.close()
+        # la copia di sicurezza serviva solo finché la ripresa era a metà
+        for backup in self._backups:
+            backup.unlink(missing_ok=True)
+        self._backups.clear()
 
     def __enter__(self) -> "MultitrackRecorder":
         return self

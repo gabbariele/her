@@ -246,13 +246,22 @@ def cmd_record(args: argparse.Namespace) -> int:
     if not cfg.tts.voice_id:
         print("Nessuna voce impostata: scegline una con `her voices` e passa --voice <id>.", file=sys.stderr)
         return 1
+
+    resume = args.continua is not None
+    if resume:
+        out_dir = Path(args.continua) if args.continua else (latest_session(args.sessions) or Path())
+        if not (out_dir / "host.wav").exists():
+            print("Nessuna puntata da riprendere: registrane una con registra.bat.", file=sys.stderr)
+            return 1
+    else:
+        out_dir = Path(args.out) if args.out else new_session_dir(args.sessions, args.name)
+
     briefing = prepare_context(args, cfg)
-    out_dir = Path(args.out) if args.out else new_session_dir(args.sessions, args.name)
-    print(f"Sessione: {out_dir}")
+    print(f"{'Riprendo' if resume else 'Sessione'}: {out_dir}")
     if briefing:
         # copia del materiale usato: fra un mese vorrai sapere cosa sapeva
         (out_dir / "contesto-usato.md").write_text(briefing, encoding="utf-8")
-    session = PodcastSession(cfg, out_dir, text_input=args.text)
+    session = PodcastSession(cfg, out_dir, text_input=args.text, resume=resume)
     session.run()
     print(f"\nRegistrato: {session.recorder.duration:.1f}s in {out_dir}")
     if not cfg.session.autorender:
@@ -458,6 +467,28 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         print(f"  montato previsto: {_mmss(max(p['end'] for p in piano) + cfg.render.tail_s)} "
               f"in {len(piano)} pezzi")
 
+    # quando si è fermata? il confronto fra l'ultimo turno e la fine della
+    # registrazione dice se a un certo punto ha smesso di ascoltare
+    durata = wav_duration(session_dir / "host.wav")
+    if events:
+        ultimo = max(float(e["end"]) for e in events)
+        coda = durata - ultimo
+        print(f"  ultimo turno riconosciuto: al minuto {ultimo / 60:.1f} di {durata / 60:.1f}")
+        if coda > 60:
+            print(f"  !! gli ultimi {coda / 60:.1f} minuti non hanno nessun turno: "
+                  "lì ha smesso di ascoltare o di trascrivere")
+            print("     il registro della puntata (sessione.log) dice perché, se c'era")
+
+    log = session_dir / "sessione.log"
+    if log.exists():
+        righe = log.read_text(encoding="utf-8", errors="replace").splitlines()
+        errori = [r for r in righe if "[ERRORE]" in r or "[TRACCIA]" in r]
+        print(f"  registro: {len(righe)} righe, {len(errori)} errori")
+        for riga in errori[-5:]:
+            print(f"     {riga[:160]}")
+    else:
+        print("  registro: assente (puntata registrata prima che esistesse)")
+
     montato = session_dir / "podcast.wav"
     if montato.exists():
         from datetime import datetime
@@ -599,6 +630,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_rec.add_argument("--out", help="cartella della sessione")
     p_rec.add_argument("--sessions", default="sessions", help="cartella radice delle sessioni")
     p_rec.add_argument("--name", help="nome della sessione")
+    p_rec.add_argument("--continua", nargs="?", const="", metavar="PUNTATA",
+                       help="riprende una puntata già registrata (default: l'ultima)")
     p_rec.add_argument("--text", action="store_true", help="scrivi invece di parlare (per provare)")
     p_rec.add_argument("--pausa", type=float, metavar="SECONDI",
                        help="silenzio da aspettare prima che l'ospite risponda (default: 1.2)")

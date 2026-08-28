@@ -18,8 +18,9 @@ testo. In tutto una decina di minuti, la prima volta.
 8. [Dove finisce la puntata](#8-dove-finisce-la-puntata)
 9. [Regolare l'attesa e la voce](#9-regolare-lattesa-e-la-voce)
 10. [Personalizza l'ospite](#10-personalizza-lospite)
-11. [Aggiornare all'ultima versione](#11-aggiornare-allultima-versione)
-12. [Se qualcosa non va](#12-se-qualcosa-non-va)
+11. [Riprendere una puntata](#11-riprendere-una-puntata)
+12. [Aggiornare all'ultima versione](#12-aggiornare-allultima-versione)
+13. [Se qualcosa non va](#13-se-qualcosa-non-va)
 
 ---
 
@@ -472,6 +473,8 @@ sostituiti: se ne avevi modificato uno, lo ritrovi lì.
 | La mia voce si sente più bassa di quella dell'ospite | Il montaggio le pareggia già da solo: guarda la riga «Volumi» a fine registrazione. Se la correzione supera +14 dB, alza il microfono in Impostazioni di Windows → Sistema → Audio. |
 | Nel montato si sente il fruscio della stanza | Il microfono è troppo basso e viene tirato su parecchio: alzalo alla fonte e riavvicinatelo alla bocca. |
 | *"401"* da ElevenLabs | Chiave sbagliata o scaduta: rigenerala su elevenlabs.io. |
+| A un certo punto non risponde e non trascrive più | Chiudi con `Invio`, poi `analizza.bat`: dice a che minuto si è fermato e cosa dice il registro della puntata (`sessione.log`, dentro la cartella). Poi `riprendi.bat` per continuare da lì. |
+| «il microfono non manda audio da N secondi» | Il microfono è stato staccato o occupato da un altro programma. Chiudi con `Invio`, ricollegalo e riprendi con `riprendi.bat`. |
 | La finestra si chiude subito senza dire niente | Apri il Prompt dei comandi, trascinaci dentro il `.bat` e premi Invio: così vedi l'errore. |
 
 Se resti bloccato, la cosa più utile da riportare è **l'ultima riga che compare

@@ -6,9 +6,10 @@ import queue
 import sys
 import threading
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import TextIO, Iterator, Optional
 
 import numpy as np
 
@@ -25,6 +26,40 @@ from .text import iter_sentences
 
 _END = object()  # sentinella di fine risposta sulla coda audio
 
+#: file su cui viene ricopiato tutto quello che compare a schermo. Senza, dopo
+#: una registrazione andata storta non resta niente da guardare.
+_LOG: "TextIO | None" = None
+
+
+def open_log(path: Path) -> None:
+    global _LOG
+    close_log()
+    try:
+        _LOG = open(path, "a", encoding="utf-8")
+        _log(f"--- avvio {datetime.now().isoformat(timespec='seconds')} ---")
+    except OSError:
+        _LOG = None
+
+
+def close_log() -> None:
+    global _LOG
+    if _LOG is not None:
+        try:
+            _LOG.close()
+        finally:
+            _LOG = None
+
+
+def _log(text: str, level: str = "info") -> None:
+    if _LOG is None:
+        return
+    try:
+        stamp = datetime.now().strftime("%H:%M:%S")
+        _LOG.write(f"{stamp} [{level}] {text}\n")
+        _LOG.flush()
+    except (OSError, ValueError):
+        pass
+
 
 class Ansi:
     HOST = "\033[96m"
@@ -36,14 +71,23 @@ class Ansi:
 
 def _say(color: str, who: str, text: str) -> None:
     print(f"{color}{who}:{Ansi.OFF} {text}", flush=True)
+    _log(f"{who}: {text}", "voce")
 
 
 def _note(text: str) -> None:
     print(f"{Ansi.DIM}· {text}{Ansi.OFF}", flush=True)
+    _log(text)
 
 
 def _warn(text: str) -> None:
     print(f"{Ansi.WARN}! {text}{Ansi.OFF}", file=sys.stderr, flush=True)
+    _log(text, "ERRORE")
+
+
+def _crash(what: str, exc: BaseException) -> None:
+    """Un guasto vero: a schermo il minimo, sul registro tutto."""
+    _warn(f"{what}: {type(exc).__name__}: {exc}")
+    _log("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)), "TRACCIA")
 
 
 def new_session_dir(root: str | Path = "sessions", name: str | None = None) -> Path:
@@ -60,14 +104,25 @@ class PodcastSession:
     la frase 2, la frase 1 è già in sintesi o in riproduzione.
     """
 
-    def __init__(self, cfg: Config, out_dir: str | Path, text_input: bool = False):
+    def __init__(
+        self,
+        cfg: Config,
+        out_dir: str | Path,
+        text_input: bool = False,
+        resume: bool = False,
+    ):
         self.cfg = cfg.sync()
         self.dir = Path(out_dir)
+        self.dir.mkdir(parents=True, exist_ok=True)
         self.text_input = text_input
-        self.history: list[dict] = []
+        self.resumed = resume
+        open_log(self.dir / "sessione.log")
+        self.history: list[dict] = load_history(self.dir) if resume else []
         #: prompt del preset + regole di lunghezza e di domande
         self.system_prompt = cfg.persona.effective_prompt()
-        self.recorder = MultitrackRecorder(self.dir, cfg.audio.sample_rate, wall_clock=text_input)
+        self.recorder = MultitrackRecorder(
+            self.dir, cfg.audio.sample_rate, wall_clock=text_input, resume=resume
+        )
         self.player = Player(
             cfg.audio.sample_rate,
             device=cfg.audio.output_device,
@@ -82,10 +137,17 @@ class PodcastSession:
         self._mic_thread: Optional[threading.Thread] = None
         self._guest_span: list[float] = []
         self.turns = 0
+        #: guardie sullo stato dell'ascolto
+        self.mic_failed = False
+        self._last_frame = time.monotonic()
+        self._silence_warned = False
 
     # -- ciclo di vita -----------------------------------------------------
     def run(self) -> Path:
         self._write_meta()
+        if self.resumed:
+            _note(f"ripresa da {self.recorder.resumed_from / 60:.1f} minuti già registrati, "
+                  f"{len(self.history)} battute in memoria")
         try:
             self.player.start()
         except AudioUnavailable as exc:
@@ -115,6 +177,8 @@ class PodcastSession:
         self.recorder.close()
         self._write_meta(final=True)
         self._write_full_mix()
+        _log("--- chiusura regolare ---")
+        close_log()
 
     def _write_full_mix(self) -> None:
         """Le due voci in un file solo, scritto subito dopo la registrazione.
@@ -147,6 +211,7 @@ class PodcastSession:
             "tts": {"provider": self.cfg.tts.provider, "model": self.cfg.tts.model,
                     "voice_id": self.cfg.tts.voice_id},
             "turns": self.turns,
+            "resumed": self.resumed,
         }
         if final:
             meta["duration"] = round(self.recorder.duration, 2)
@@ -177,8 +242,27 @@ class PodcastSession:
             try:
                 audio, start, end = self._utterances.get(timeout=0.3)
             except queue.Empty:
+                self._check_alive()
                 continue
-            self._handle_turn(audio, start, end)
+            try:
+                self._handle_turn(audio, start, end)
+            except Exception as exc:
+                # qualunque cosa sia andata storta, la registrazione continua
+                _crash("turno non completato", exc)
+                self._speaking.clear()
+                self._listening.set()
+
+    def _check_alive(self) -> None:
+        """Se il microfono smette di mandare audio, dirlo invece di stare zitti."""
+        if self.mic_failed or self._speaking.is_set():
+            return
+        fermo = time.monotonic() - self._last_frame
+        if fermo > 5.0 and not self._silence_warned:
+            self._silence_warned = True
+            _warn(f"il microfono non manda audio da {fermo:.0f}s: controlla che non sia "
+                  "staccato o occupato da un altro programma")
+        elif fermo <= 5.0:
+            self._silence_warned = False
 
     def _wait_for_enter(self) -> None:
         """Chiusura pulita: Ctrl-C su Windows può ammazzare il processo prima
@@ -192,28 +276,45 @@ class PodcastSession:
             self._stop.set()
 
     def _mic_loop(self) -> None:
+        """Il thread che ascolta. Se muore, la sessione resta aperta ma sorda:
+        per questo qui dentro non si può lasciar passare nessuna eccezione."""
         assert self._mic is not None
         sr = self.cfg.audio.sample_rate
-        for frame in self._mic.frames():
-            if self._stop.is_set():
-                break
-            self.recorder.write_host(frame)
-            if not self._listening.is_set():
-                continue
-            event = self.endpointer.push(frame)
-            if event is None:
-                continue
-            kind, audio = event
-            if kind == "start":
-                if self._speaking.is_set() and self.cfg.session.barge_in:
-                    self.player.stop()
-                    _note("interrotto dall'utente")
-                continue
-            if audio is None or audio.size == 0:
-                continue
-            end = self.recorder.now() - self.endpointer.hangover_s
-            start = max(0.0, end - audio.size / sr)
-            self._utterances.put((audio, start, end))
+        try:
+            for frame in self._mic.frames():
+                if self._stop.is_set():
+                    break
+                self._last_frame = time.monotonic()
+                try:
+                    self._process_frame(frame, sr)
+                except Exception as exc:
+                    # un turno perso è meglio di un microfono che smette di
+                    # funzionare senza dirlo
+                    _crash("errore nell'ascolto (turno saltato)", exc)
+                    self.endpointer.reset()
+        except Exception as exc:
+            _crash("il microfono si è fermato", exc)
+            self.mic_failed = True
+            _warn("ascolto interrotto: chiudi con INVIO e riprendi con riprendi.bat")
+
+    def _process_frame(self, frame: np.ndarray, sr: int) -> None:
+        self.recorder.write_host(frame)
+        if not self._listening.is_set():
+            return
+        event = self.endpointer.push(frame)
+        if event is None:
+            return
+        kind, audio = event
+        if kind == "start":
+            if self._speaking.is_set() and self.cfg.session.barge_in:
+                self.player.stop()
+                _note("interrotto dall'utente")
+            return
+        if audio is None or audio.size == 0:
+            return
+        end = self.recorder.now() - self.endpointer.hangover_s
+        start = max(0.0, end - audio.size / sr)
+        self._utterances.put((audio, start, end))
 
     # -- modalità testo (per provare senza microfono) ----------------------
     def _run_text(self) -> None:
@@ -334,7 +435,7 @@ class PodcastSession:
     # -- saluto iniziale ---------------------------------------------------
     def _greet(self) -> None:
         greeting = self.cfg.persona.greeting.strip()
-        if not greeting:
+        if not greeting or self.resumed:
             return
         self._guest_span = []
         self._speaking.set()
