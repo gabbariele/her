@@ -115,6 +115,12 @@ def cmd_context(args: argparse.Namespace) -> int:
     return 0
 
 
+def _code_mtime() -> float:
+    """Data del codice installato: un montato più vecchio è stato fatto con altre regole."""
+    root = Path(__file__).resolve().parent
+    return max((f.stat().st_mtime for f in root.rglob("*.py")), default=0.0)
+
+
 def _mmss(seconds: float) -> str:
     minutes, secs = divmod(int(round(seconds)), 60)
     return f"{minutes}m{secs:02d}s" if minutes else f"{secs}s"
@@ -457,6 +463,10 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         print(f"  correzione applicata: {levels.host_gain_db:+.1f} / {levels.guest_gain_db:+.1f} dB "
               f"(target {cfg.render.target_lufs} LUFS)")
         print(f"  compressione: tu {levels.host_compressed}, ospite {levels.guest_compressed}")
+        if levels.host_short_db > 0.5:
+            print(f"  !! correzione al massimo: la tua voce resta {levels.host_short_db:.0f} dB "
+                  "sotto il livello giusto")
+            print("     il microfono è troppo basso alla fonte: alzalo in Impostazioni di Windows")
     else:
         print("  volumi: non misurabili")
     print(f"  bilanciamento attivo: {cfg.render.match_loudness} · "
@@ -494,7 +504,12 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         from datetime import datetime
 
         quando = datetime.fromtimestamp(montato.stat().st_mtime).strftime("%d/%m/%Y %H:%M:%S")
-        stato = "VECCHIO (rimonta)" if montato.stat().st_mtime < recorded_at(session_dir) - 1 else "aggiornato"
+        if montato.stat().st_mtime < recorded_at(session_dir) - 1:
+            stato = "VECCHIO: è di prima della registrazione, rimonta"
+        elif montato.stat().st_mtime < _code_mtime():
+            stato = "montato con una versione precedente del programma: conviene rimontare"
+        else:
+            stato = "aggiornato"
         print(f"  podcast.wav: {_mmss(wav_duration(montato))}, scritto il {quando} — {stato}")
     else:
         print("  podcast.wav: NON C'È")
@@ -561,9 +576,19 @@ def _print_levels(levels) -> None:
     compressa = " (la tua voce è stata anche compressa)" if levels.host_compressed else ""
     print(f"Volumi:    tu {levels.host_lufs:.1f} LUFS, l'ospite {levels.guest_lufs:.1f} LUFS "
           f"→ corretti di {levels.host_gain_db:+.1f} e {levels.guest_gain_db:+.1f} dB{compressa}")
-    if levels.host_gain_db > 14:
-        print("           (il tuo microfono è molto basso: alzalo in Impostazioni di Windows →")
-        print("            Sistema → Audio → Microfono → Volume, così si sente meno il fruscio)")
+    _warn_low_mic(levels)
+
+
+def _warn_low_mic(levels) -> None:
+    """Un microfono troppo basso non si aggiusta in post: si aggiusta prima."""
+    if levels.host_short_db > 0.5:
+        print(f"           !! la tua voce resta {levels.host_short_db:.0f} dB sotto il livello "
+              "giusto: la correzione\n              ha già toccato il massimo consentito.")
+    elif levels.host_gain_db <= 14:
+        return
+    print("           Alza il microfono in Impostazioni di Windows → Sistema → Audio →")
+    print("           Microfono → Volume (e avvicinatelo): tirando su di tanto in post")
+    print("           si tira su anche il fruscio della stanza.")
 
 
 def cmd_presets(args: argparse.Namespace) -> int:

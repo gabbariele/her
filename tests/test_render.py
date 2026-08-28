@@ -400,3 +400,14 @@ def test_the_margin_never_eats_into_the_previous_turn(tmp_path):
     ]
     padded = pad_events(events, RenderConfig(edge_pad_in_s=0.5, edge_pad_out_s=0.5), duration=20.0)
     assert padded[1]["start"] >= padded[0]["end"] - 1e-6      # nessuna sovrapposizione
+
+
+def test_a_mic_too_low_to_fix_is_reported(tmp_path):
+    """Se la correzione tocca il tetto, il montaggio non può farci niente: va detto."""
+    d = _sessione_sbilanciata(tmp_path, ampiezza_host=40, ampiezza_guest=7000)
+    result = render_session(d, RenderConfig(mp3=False, max_match_db=18.0))
+    assert result.levels.host_gain_db <= 18.0 + 1e-6
+    assert result.levels.host_short_db > 1.0                 # quanto manca ancora
+
+    normale = render_session(_sessione_sbilanciata(tmp_path / "ok"), RenderConfig(mp3=False))
+    assert normale.levels.host_short_db == 0.0

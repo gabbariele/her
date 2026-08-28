@@ -31,6 +31,9 @@ class Levels:
     guest_gain_db: float = 0.0
     host_compressed: bool = False
     guest_compressed: bool = False
+    #: la correzione ha toccato il tetto: la voce resta sotto il target
+    host_short_db: float = 0.0
+    guest_short_db: float = 0.0
 
     @property
     def gap_db(self) -> float:
@@ -261,7 +264,11 @@ def prepare_tracks(
         # 1. porta la voce al volume di riferimento
         auto_db = 0.0
         if cfg.match_loudness and measured is not None:
-            auto_db = float(np.clip(cfg.target_lufs - measured, -cfg.max_match_db, cfg.max_match_db))
+            voluto = cfg.target_lufs - measured
+            auto_db = float(np.clip(voluto, -cfg.max_match_db, cfg.max_match_db))
+            # se serviva più del consentito, la voce resta sotto: va detto,
+            # perché il rimedio non è nel montaggio ma nel microfono
+            setattr(levels, f"{speaker}_short_db", round(float(voluto - auto_db), 1))
         audio = track.astype(np.float32) * _db_to_gain(auto_db)
 
         # 2. comprimi la dinamica (solo dove serve: la voce sintetica è già densa)

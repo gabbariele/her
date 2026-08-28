@@ -470,6 +470,8 @@ sostituiti: se ne avevi modificato uno, lo ritrovi lì.
 | Sento la voce dell'ospite dentro la mia traccia | Stai usando gli altoparlanti: metti le cuffie. |
 | Mi ha tagliato delle parole nel montato | Non dovrebbe più: il montaggio recupera dall'audio anche ciò che la trascrizione non ha capito. Se manca ancora qualcosa, era sovrapposto alla voce dell'ospite: `recover_over_guest: true` nel preset. |
 | A fine montaggio dice che parte della mia traccia è «fuori dai turni» | Stessa cosa: hai parlato quando non ti stava ascoltando. Aspetta il `→ tocca a te` e non parlarle sopra (a meno di usare `--barge-in` con le cuffie). |
+| «la tua voce resta N dB sotto il livello giusto» | Il microfono è troppo basso alla fonte e il montaggio ha già corretto il massimo consentito. Alzalo in Impostazioni di Windows → Sistema → Audio → Microfono → Volume, e avvicinatelo: sopra i 18 dB di correzione si amplifica solo il fruscio. Un microfono sano sta intorno a −22 LUFS, non a −37. |
+| «montato con una versione precedente del programma» | Il montaggio è stato fatto prima dell'aggiornamento: rifallo con `monta.bat`. |
 | La mia voce si sente più bassa di quella dell'ospite | Il montaggio le pareggia già da solo: guarda la riga «Volumi» a fine registrazione. Se la correzione supera +14 dB, alza il microfono in Impostazioni di Windows → Sistema → Audio. |
 | Nel montato si sente il fruscio della stanza | Il microfono è troppo basso e viene tirato su parecchio: alzalo alla fonte e riavvicinatelo alla bocca. |
 | *"401"* da ElevenLabs | Chiave sbagliata o scaduta: rigenerala su elevenlabs.io. |
