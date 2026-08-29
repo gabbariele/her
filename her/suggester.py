@@ -22,28 +22,33 @@ from .providers.llm import stream_reply
 
 SYSTEM_PROMPT = """\
 Sei la regia di un podcast: stai in cuffia con il conduttore mentre registra.
-Hai davanti la scaletta della puntata e la conversazione in corso. L'ospite è
-un'AI di nome {ospite}; il conduttore è la persona vera.
+L'ospite è {ospite}, un'AI; il conduttore è la persona vera che le sta davanti.
 
-Il tuo lavoro è dare al conduttore UNA spinta da leggere in due secondi, mentre
-l'ospite sta rispondendo.
+L'ospite ha appena finito di rispondere. Il tuo lavoro è dare al conduttore UNA
+riga da leggere in due secondi: la mossa successiva, adesso.
+
+DA DOVE NASCE
+- Dall'ULTIMA risposta dell'ospite, non dalla domanda del conduttore. Aggancia
+  una cosa precisa che ha appena detto: una parola, un'affermazione discutibile,
+  un'esagerazione, un dettaglio buffo, un buco nel ragionamento.
+- Se ha detto qualcosa di dubbio o troppo comodo, dai al conduttore l'obiezione.
+- Se ha detto qualcosa di succoso ma di sfuggita, digli di tirarci sopra.
+- Se ha girato intorno alla domanda, digli come incalzarla.
 
 COME
 - Una riga sola, massimo {parole} parole. Niente preamboli, niente virgolette,
   niente «suggerimento:». Solo la frase.
-- Dagli qualcosa da DIRE: l'affondo, la battuta, la domanda precisa. Mai
-  consigli generici come «approfondisci» o «chiedi un esempio».
+- Qualcosa da DIRE: la battuta, l'obiezione, la domanda precisa. Mai consigli
+  generici come «approfondisci» o «chiedi un esempio».
 - Tono ironico e caldo, da complice che gli passa la palla, non da professore.
+- Non riassumere e non commentare la risposta dell'ospite: lui l'ha appena
+  sentita. Dagli solo la mossa.
 
-QUANDO
-- Se la conversazione è uscita dalla scaletta ma sta funzionando, NON riportarlo
-  indietro: assecondala e digli come cavalcarla.
-- Se si è impantanata, o gira a vuoto, o l'ospite è stato generico, dagli la via
-  d'uscita.
-- Se sta andando bene e non hai niente che aggiunga davvero qualcosa, rispondi
-  esattamente: NIENTE
+QUANDO TACERE
+- Se la risposta non offre nessun appiglio e qualsiasi riga sarebbe di
+  riempimento, rispondi esattamente: NIENTE
 
-Non ripetere consigli già dati. Non commentare la qualità della puntata.
+Non ripetere consigli già dati.
 """
 
 
@@ -123,8 +128,11 @@ class Suggester:
 
     def _ask(self, history: list[dict]) -> str:
         system = SYSTEM_PROMPT.format(ospite=self.persona_name, parole=self.cfg.max_words)
-        if self.briefing:
-            system += "\n\nSCALETTA E MATERIALE DELLA PUNTATA\n" + self.briefing
+        if self.briefing and self.cfg.use_briefing:
+            # di norma no: il conduttore la scaletta ce l'ha davanti, e darla
+            # alla regia la porta a riportare il discorso sui binari invece di
+            # reagire a quello che è stato appena detto
+            system += "\n\nSCALETTA DELLA PUNTATA (sfondo, non un binario)\n" + self.briefing
         if self.suggestions:
             recenti = " | ".join(s.text for s in self.suggestions[-4:])
             system += f"\n\nSuggerimenti che gli hai già dato (non ripeterli): {recenti}"
@@ -132,6 +140,11 @@ class Suggester:
         conversazione = "\n".join(
             f"{'CONDUTTORE' if m['role'] == 'user' else self.persona_name.upper()}: {m['content']}"
             for m in history
+        )
+        richiesta = (
+            f"{conversazione}\n\n"
+            f"{self.persona_name} ha appena detto l'ultima battuta qui sopra. "
+            "La riga da passare al conduttore:"
         )
         cfg = LlmConfig(
             provider=self.cfg.provider,
@@ -142,7 +155,7 @@ class Suggester:
         )
         pieces = stream_reply(
             system,
-            [{"role": "user", "content": conversazione + "\n\nLa tua riga:"}],
+            [{"role": "user", "content": richiesta}],
             cfg,
             timeout=self.cfg.timeout,
             client=self._client,

@@ -260,15 +260,15 @@ def test_a_dead_microphone_is_reported_not_ignored(tmp_path, monkeypatch, patche
     assert "microfono si è fermato" in log and "dispositivo scomparso" in log
 
 
-def test_the_director_gets_the_outline_and_the_conversation(tmp_path, monkeypatch, patched):
-    """La regia lavora a parte: vede scaletta e conversazione, e non rallenta nulla."""
+def test_the_director_reacts_to_what_the_guest_just_said(tmp_path, monkeypatch, patched):
+    """La regia deve agganciarsi alla risposta dell'ospite, non alla domanda."""
     visti = {}
 
     def finto_llm(system_prompt, history, cfg, **kw):
         visti["system"] = system_prompt
-        visti["conversazione"] = history[-1]["content"]
+        visti["richiesta"] = history[-1]["content"]
         visti["modello"] = cfg.model
-        yield "chiedigli se ci crede davvero"
+        yield "chiedile se ci crede davvero"
 
     monkeypatch.setattr("her.suggester.stream_reply", finto_llm)
     monkeypatch.setenv("GEMINI_API_KEY", "chiave-finta")
@@ -286,11 +286,41 @@ def test_the_director_gets_the_outline_and_the_conversation(tmp_path, monkeypatc
             break
         time.sleep(0.02)
 
-    assert [s.text for s in sess.suggester.suggestions] == ["chiedigli se ci crede davvero"]
-    assert "radio libere" in visti["system"]              # ha la scaletta
-    assert "parliamo di vinile" in visti["conversazione"]  # e la conversazione
-    assert visti["modello"] == cfg.suggester.model        # con il suo modello, non quello dell'ospite
-    assert "chiedigli se ci crede" in (sess.dir / "suggerimenti.md").read_text(encoding="utf-8")
+    assert [s.text for s in sess.suggester.suggestions] == ["chiedile se ci crede davvero"]
+    # ha visto la risposta dell'ospite, non solo la domanda del conduttore
+    assert "Interessante quello che dici su parliamo di vinile" in visti["richiesta"]
+    assert "parliamo di vinile" in visti["richiesta"]
+    assert visti["richiesta"].rstrip().endswith("La riga da passare al conduttore:")
+    # la scaletta invece non gliela diamo: se la legge il conduttore
+    assert "radio libere" not in visti["system"]
+    assert "ULTIMA risposta dell'ospite" in visti["system"]
+    assert visti["modello"] == cfg.suggester.model     # con il suo modello, non quello dell'ospite
+    assert "chiedile se ci crede" in (sess.dir / "suggerimenti.md").read_text(encoding="utf-8")
+
+
+def test_the_outline_can_be_given_to_the_director_on_request(tmp_path, monkeypatch, patched):
+    visti = {}
+
+    def finto_llm(system_prompt, history, cfg, **kw):
+        visti["system"] = system_prompt
+        yield "vai di ironia"
+
+    monkeypatch.setattr("her.suggester.stream_reply", finto_llm)
+    monkeypatch.setenv("GEMINI_API_KEY", "chiave-finta")
+    cfg = load_config("gemini", {"tts": {"voice_id": "fake"},
+                                 "suggester": {"use_briefing": True}})
+    cfg.persona.briefing = "SCALETTA: si parla di radio libere"
+    it = iter(["ciao"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(it, ""))
+    sess = PodcastSession(cfg, tmp_path / "regia2", text_input=True)
+    sess.run()
+
+    import time
+    for _ in range(50):
+        if sess.suggester.suggestions:
+            break
+        time.sleep(0.02)
+    assert "radio libere" in visti["system"]
 
 
 def test_a_broken_director_never_stops_the_recording(tmp_path, monkeypatch, patched):

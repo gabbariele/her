@@ -379,8 +379,8 @@ class PodcastSession:
             _warn(f"regia non attiva ({motivo}): registri lo stesso, senza suggerimenti")
             self.suggester.disabled_reason = motivo
             return
-        _note(f"regia attiva ({self.cfg.suggester.model}): ti passa una riga mentre "
-              f"{self.cfg.persona.name} risponde")
+        _note(f"regia attiva ({self.cfg.suggester.model}): reagisce a quello che dice "
+              f"{self.cfg.persona.name} e ti passa una riga mentre lei parla")
 
     def _handle_turn(self, audio: np.ndarray, start: float, end: float) -> None:
         t0 = time.monotonic()
@@ -403,9 +403,6 @@ class PodcastSession:
 
     def _reply_to(self, user_text: str) -> None:
         self.history.append({"role": "user", "content": user_text})
-        # la regia parte adesso: il suggerimento arriva mentre l'ospite parla,
-        # che è l'unico momento in cui hai il tempo di leggerlo
-        self.suggester.consider(self.history)
         audio_q: queue.Queue = queue.Queue(maxsize=64)
         result: dict = {}
         worker = threading.Thread(
@@ -451,11 +448,22 @@ class PodcastSession:
     def _produce_reply(self, audio_q: queue.Queue, result: dict) -> None:
         """LLM -> frasi -> TTS -> coda audio. Gira in un thread a parte."""
         parts: list[str] = []
+
+        def risposta_pronta() -> None:
+            """L'ospite ha finito di formulare: la regia può reagire.
+
+            È il momento giusto: il testo è completo ma la voce sta ancora
+            parlando, quindi il suggerimento arriva mentre hai tempo di leggerlo.
+            """
+            testo = "".join(parts).strip()
+            if testo:
+                self.suggester.consider(self.history + [{"role": "assistant", "content": testo}])
+
         try:
             tokens = llm_provider.stream_reply(
                 self.system_prompt, self.history, self.cfg.llm, notice=_warn
             )
-            for sentence in iter_sentences(_tee(tokens, parts)):
+            for sentence in iter_sentences(_tee(tokens, parts, on_done=risposta_pronta)):
                 if self._stop.is_set():
                     break
                 for chunk in tts_provider.stream_speech(
@@ -513,10 +521,12 @@ class PodcastSession:
         _say(Ansi.GUEST, self.cfg.persona.name, greeting)
 
 
-def _tee(tokens: Iterator[str], sink: list[str]) -> Iterator[str]:
+def _tee(tokens: Iterator[str], sink: list[str], on_done=None) -> Iterator[str]:
     for token in tokens:
         sink.append(token)
         yield token
+    if on_done is not None:
+        on_done()
 
 
 def load_history(session_dir: str | Path) -> list[dict]:

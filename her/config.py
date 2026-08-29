@@ -186,6 +186,10 @@ class SuggesterConfig:
     thinking: str = "off"
     #: quante parole al massimo può usare per la sua riga
     max_words: int = 15
+    #: dare alla regia anche la scaletta della puntata. Di norma no: il
+    #: conduttore ce l'ha davanti, e la regia deve reagire a quello che è stato
+    #: appena detto, non riportare il discorso sui binari
+    use_briefing: bool = False
     #: quanti scambi della conversazione guarda
     history_turns: int = 6
     timeout: float = 25.0
