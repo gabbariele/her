@@ -181,6 +181,22 @@ giusta dal nome del modello, e se la richiesta viene comunque rifiutata la
 semplifica per gradi (`minimal` → `low` → niente thinking → parametri
 predefiniti) avvisandoti a ogni passo, invece di far cadere la risposta.
 
+## La regia
+
+Durante la registrazione un secondo modello, indipendente dall'ospite, legge il
+briefing della puntata e segue la conversazione; a ogni turno può passare al
+conduttore una riga da leggere mentre l'ospite parla. È in `her/suggester.py`:
+thread e client HTTP suoi, così una regia lenta o rotta non tocca la
+conversazione — un errore viene detto una volta e poi solo annotato nel
+registro.
+
+Il prompt è la parte che conta: massimo quindici parole, qualcosa da *dire* (un
+affondo, una battuta, una domanda precisa) e mai un consiglio generico; se la
+conversazione è uscita dalla scaletta ma funziona, assecondarla invece di
+riportarla indietro; e la possibilità esplicita di tacere rispondendo `NIENTE`,
+perché un suggeritore che parla sempre diventa rumore. Le righe passate finiscono
+in `suggerimenti.md`. Si spegne con `HER_REGIA=off` o `--no-regia`.
+
 ## Il montaggio
 
 `her render sessions/<nome>` rifà il montaggio quante volte vuoi, senza

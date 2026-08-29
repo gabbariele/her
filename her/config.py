@@ -175,6 +175,23 @@ def _valid(value: str, table: dict, where: str) -> str:
 
 
 @dataclass
+class SuggesterConfig:
+    """La regia: il suggeritore in cuffia, indipendente dall'ospite."""
+
+    enabled: bool = True
+    provider: str = "gemini"          # openai | gemini
+    model: str = "gemini-3.5-flash-lite"
+    temperature: float = 0.9
+    max_output_tokens: int = 120
+    thinking: str = "off"
+    #: quante parole al massimo può usare per la sua riga
+    max_words: int = 15
+    #: quanti scambi della conversazione guarda
+    history_turns: int = 6
+    timeout: float = 25.0
+
+
+@dataclass
 class ContextConfig:
     #: file con gli appunti della puntata, caricato da solo se esiste
     file: str = "contesto.md"
@@ -258,6 +275,7 @@ class Config:
     persona: PersonaConfig = field(default_factory=PersonaConfig)
     session: SessionConfig = field(default_factory=SessionConfig)
     context: ContextConfig = field(default_factory=ContextConfig)
+    suggester: SuggesterConfig = field(default_factory=SuggesterConfig)
     render: RenderConfig = field(default_factory=RenderConfig)
 
     def sync(self) -> "Config":
@@ -266,6 +284,7 @@ class Config:
         self.vad.frame_ms = self.audio.frame_ms
         check_model(self.stt.provider, self.stt.model, "stt")
         check_model(self.llm.provider, self.llm.model, "llm")
+        check_model(self.suggester.provider, self.suggester.model, "suggester")
         # una risposta lunga con pochi token si tronca a metà frase: il tetto
         # non scende mai sotto quello che la lunghezza richiesta comporta
         self.llm.max_output_tokens = max(self.llm.max_output_tokens, self.persona.min_output_tokens)

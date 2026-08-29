@@ -22,6 +22,7 @@ from .config import Config
 from .providers import llm as llm_provider
 from .providers import stt as stt_provider
 from .providers import tts as tts_provider
+from .suggester import Suggester, Suggestion
 from .text import iter_sentences
 
 _END = object()  # sentinella di fine risposta sulla coda audio
@@ -64,24 +65,43 @@ def _log(text: str, level: str = "info") -> None:
 class Ansi:
     HOST = "\033[96m"
     GUEST = "\033[95m"
+    CUE = "\033[93m"
     DIM = "\033[2m"
     WARN = "\033[93m"
     OFF = "\033[0m"
 
 
+#: la regia scrive da un thread suo: senza questo lucchetto le sue righe si
+#: infilano in mezzo a quelle della conversazione
+_PRINT_LOCK = threading.Lock()
+
+
+def _out(text: str, stream=None) -> None:
+    stream = stream or sys.stdout
+    with _PRINT_LOCK:
+        stream.write(text + "\n")
+        stream.flush()
+
+
 def _say(color: str, who: str, text: str) -> None:
-    print(f"{color}{who}:{Ansi.OFF} {text}", flush=True)
+    _out(f"{color}{who}:{Ansi.OFF} {text}")
     _log(f"{who}: {text}", "voce")
 
 
 def _note(text: str) -> None:
-    print(f"{Ansi.DIM}· {text}{Ansi.OFF}", flush=True)
+    _out(f"{Ansi.DIM}· {text}{Ansi.OFF}")
     _log(text)
 
 
 def _warn(text: str) -> None:
-    print(f"{Ansi.WARN}! {text}{Ansi.OFF}", file=sys.stderr, flush=True)
+    _out(f"{Ansi.WARN}! {text}{Ansi.OFF}", sys.stderr)
     _log(text, "ERRORE")
+
+
+def _cue(text: str) -> None:
+    """Il suggerimento della regia: si distingue a colpo d'occhio dal parlato."""
+    _out(f"\n{Ansi.CUE}   → regia: {text}{Ansi.OFF}")
+    _log(f"regia: {text}", "regia")
 
 
 def _crash(what: str, exc: BaseException) -> None:
@@ -137,6 +157,15 @@ class PodcastSession:
         self._mic_thread: Optional[threading.Thread] = None
         self._guest_span: list[float] = []
         self.turns = 0
+        self.suggester = Suggester(
+            cfg.suggester,
+            briefing=cfg.persona.briefing,
+            persona_name=cfg.persona.name,
+            out_path=self.dir / "suggerimenti.md",
+            on_suggestion=lambda s: _cue(s.text),
+            on_error=self._suggester_error,
+        )
+        self._suggester_warned = False
         #: guardie sullo stato dell'ascolto
         self.mic_failed = False
         self._last_frame = time.monotonic()
@@ -174,6 +203,7 @@ class PodcastSession:
         if self._mic_thread is not None:
             self._mic_thread.join(timeout=2.0)
         self.player.close()
+        self.suggester.close()
         self.recorder.close()
         self._write_meta(final=True)
         self._write_full_mix()
@@ -235,6 +265,7 @@ class PodcastSession:
         print(f"{Ansi.DIM}· premi INVIO quando hai finito la puntata "
               f"(così il montaggio fa in tempo a scriversi){Ansi.OFF}", flush=True)
         threading.Thread(target=self._wait_for_enter, name="stop", daemon=True).start()
+        self._announce_suggester()
         self._greet()
         print(f"{Ansi.HOST}→ tocca a te: parla pure.{Ansi.OFF}\n", flush=True)
 
@@ -251,6 +282,14 @@ class PodcastSession:
                 _crash("turno non completato", exc)
                 self._speaking.clear()
                 self._listening.set()
+
+    def _suggester_error(self, message: str) -> None:
+        """La regia è un di più: se non funziona lo dice una volta e sta zitta."""
+        if not self._suggester_warned:
+            self._suggester_warned = True
+            _warn(message)
+        else:
+            _log(message, "regia")
 
     def _check_alive(self) -> None:
         """Se il microfono smette di mandare audio, dirlo invece di stare zitti."""
@@ -332,6 +371,17 @@ class PodcastSession:
             self._reply_to(line)
 
     # -- un turno ----------------------------------------------------------
+    def _announce_suggester(self) -> None:
+        motivo = self.suggester.check()
+        if motivo == "spenta":
+            return
+        if motivo:
+            _warn(f"regia non attiva ({motivo}): registri lo stesso, senza suggerimenti")
+            self.suggester.disabled_reason = motivo
+            return
+        _note(f"regia attiva ({self.cfg.suggester.model}): ti passa una riga mentre "
+              f"{self.cfg.persona.name} risponde")
+
     def _handle_turn(self, audio: np.ndarray, start: float, end: float) -> None:
         t0 = time.monotonic()
         try:
@@ -353,6 +403,9 @@ class PodcastSession:
 
     def _reply_to(self, user_text: str) -> None:
         self.history.append({"role": "user", "content": user_text})
+        # la regia parte adesso: il suggerimento arriva mentre l'ospite parla,
+        # che è l'unico momento in cui hai il tempo di leggerlo
+        self.suggester.consider(self.history)
         audio_q: queue.Queue = queue.Queue(maxsize=64)
         result: dict = {}
         worker = threading.Thread(

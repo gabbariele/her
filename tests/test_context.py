@@ -170,3 +170,28 @@ def test_the_briefing_reaches_the_persona_prompt():
     assert "Si parla di jazz" in prompt
     # le regole di comportamento restano dopo il materiale
     assert prompt.index("Si parla di jazz") < prompt.index("LUNGHEZZA:")
+
+
+# -- la riga della regia -----------------------------------------------------
+def test_the_director_line_is_cleaned_up():
+    from her.suggester import clean_suggestion
+
+    assert clean_suggestion("NIENTE", 15) == ""
+    assert clean_suggestion("  \n", 15) == ""
+    assert clean_suggestion('«Chiedigli se ci crede»', 15) == "Chiedigli se ci crede"
+    assert clean_suggestion("regia: rilancia sul disco", 15) == "rilancia sul disco"
+    # solo la prima riga, e non troppo lunga
+    assert clean_suggestion("prima riga\nseconda riga", 15) == "prima riga"
+    assert clean_suggestion(" ".join(["parola"] * 40), 10).endswith("…")
+
+
+def test_the_director_says_why_it_cannot_work(monkeypatch):
+    from her.config import SuggesterConfig
+    from her.suggester import Suggester
+
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    regia = Suggester(SuggesterConfig(), briefing="", persona_name="Nova")
+    assert "chiave" in regia.check()
+    assert Suggester(SuggesterConfig(enabled=False), "", "Nova").check() == "spenta"
+    regia.close()

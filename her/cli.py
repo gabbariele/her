@@ -144,6 +144,13 @@ def _load(args: argparse.Namespace) -> Config:
         cfg.persona.length = os.environ["HER_LUNGHEZZA"].strip().lower()
     if os.environ.get("HER_DOMANDE") and not getattr(args, "domande", None):
         cfg.persona.questions = os.environ["HER_DOMANDE"].strip().lower()
+    regia = os.environ.get("HER_REGIA", "").strip().lower()
+    if regia in ("off", "no", "0", "spenta", "false"):
+        cfg.suggester.enabled = False
+    elif regia in ("on", "si", "sì", "1", "true"):
+        cfg.suggester.enabled = True
+    if getattr(args, "no_regia", False):
+        cfg.suggester.enabled = False
     if os.environ.get("HER_INDICAZIONI") and not getattr(args, "indicazioni", None):
         cfg.persona.notes = os.environ["HER_INDICAZIONI"].strip()
     if getattr(args, "indicazioni", None):
@@ -183,6 +190,13 @@ def cmd_check(args: argparse.Namespace) -> int:
           f"{cfg.vad.silence_ms / 1000:.1f}s")
     print(f"  Ospite: {cfg.persona.name} · risposte: {cfg.persona.length} "
           f"· domande al conduttore: {cfg.persona.questions}")
+    if cfg.suggester.enabled:
+        manca = "" if api_key(*(GEMINI_KEYS if cfg.suggester.provider == "gemini" else OPENAI_KEYS)) \
+            else "  (MANCA LA CHIAVE)"
+        print(f"  Regia: {cfg.suggester.provider}/{cfg.suggester.model}, "
+              f"max {cfg.suggester.max_words} parole{manca}")
+    else:
+        print("  Regia: spenta")
 
     needed = {"openai": OPENAI_KEYS, "gemini": GEMINI_KEYS}
     missing = []
@@ -660,6 +674,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_rec.add_argument("--text", action="store_true", help="scrivi invece di parlare (per provare)")
     p_rec.add_argument("--pausa", type=float, metavar="SECONDI",
                        help="silenzio da aspettare prima che l'ospite risponda (default: 1.2)")
+    p_rec.add_argument("--no-regia", action="store_true",
+                       help="niente suggerimenti scritti durante la registrazione")
     p_rec.add_argument("--barge-in", action="store_true", help="puoi interrompere l'ospite (usa le cuffie)")
     p_rec.add_argument("--no-render", action="store_true", help="non montare a fine registrazione")
     p_rec.add_argument("--max-gap", type=float, help="pausa massima nel montaggio (s)")

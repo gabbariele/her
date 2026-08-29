@@ -18,9 +18,10 @@ testo. In tutto una decina di minuti, la prima volta.
 8. [Dove finisce la puntata](#8-dove-finisce-la-puntata)
 9. [Regolare l'attesa e la voce](#9-regolare-lattesa-e-la-voce)
 10. [Personalizza l'ospite](#10-personalizza-lospite)
-11. [Riprendere una puntata](#11-riprendere-una-puntata)
-12. [Aggiornare all'ultima versione](#12-aggiornare-allultima-versione)
-13. [Se qualcosa non va](#13-se-qualcosa-non-va)
+11. [La regia: il suggeritore in cuffia](#11-la-regia-il-suggeritore-in-cuffia)
+12. [Riprendere una puntata](#12-riprendere-una-puntata)
+13. [Aggiornare all'ultima versione](#13-aggiornare-allultima-versione)
+14. [Se qualcosa non va](#14-se-qualcosa-non-va)
 
 ---
 
@@ -435,7 +436,7 @@ dei comandi:
 
 ---
 
-## 12. Aggiornare all'ultima versione
+## 13. Aggiornare all'ultima versione
 
 Fai **doppio clic su `aggiorna.bat`**. Scarica la versione nuova e sostituisce
 solo i file del programma.
@@ -446,7 +447,7 @@ sostituiti: se ne avevi modificato uno, lo ritrovi lì.
 
 ---
 
-## 13. Se qualcosa non va
+## 14. Se qualcosa non va
 
 | Cosa vedi o senti | Cosa fare |
 |---|---|

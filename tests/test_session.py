@@ -258,3 +258,66 @@ def test_a_dead_microphone_is_reported_not_ignored(tmp_path, monkeypatch, patche
     assert sess.mic_failed
     log = (sess.dir / "sessione.log").read_text(encoding="utf-8")
     assert "microfono si è fermato" in log and "dispositivo scomparso" in log
+
+
+def test_the_director_gets_the_outline_and_the_conversation(tmp_path, monkeypatch, patched):
+    """La regia lavora a parte: vede scaletta e conversazione, e non rallenta nulla."""
+    visti = {}
+
+    def finto_llm(system_prompt, history, cfg, **kw):
+        visti["system"] = system_prompt
+        visti["conversazione"] = history[-1]["content"]
+        visti["modello"] = cfg.model
+        yield "chiedigli se ci crede davvero"
+
+    monkeypatch.setattr("her.suggester.stream_reply", finto_llm)
+    monkeypatch.setenv("GEMINI_API_KEY", "chiave-finta")
+
+    cfg = load_config("gemini", {"tts": {"voice_id": "fake"}})
+    cfg.persona.briefing = "SCALETTA: si parla di radio libere"
+    it = iter(["parliamo di vinile"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(it, ""))
+    sess = PodcastSession(cfg, tmp_path / "regia", text_input=True)
+    sess.run()
+
+    import time
+    for _ in range(50):                       # la regia gira in un thread suo
+        if sess.suggester.suggestions:
+            break
+        time.sleep(0.02)
+
+    assert [s.text for s in sess.suggester.suggestions] == ["chiedigli se ci crede davvero"]
+    assert "radio libere" in visti["system"]              # ha la scaletta
+    assert "parliamo di vinile" in visti["conversazione"]  # e la conversazione
+    assert visti["modello"] == cfg.suggester.model        # con il suo modello, non quello dell'ospite
+    assert "chiedigli se ci crede" in (sess.dir / "suggerimenti.md").read_text(encoding="utf-8")
+
+
+def test_a_broken_director_never_stops_the_recording(tmp_path, monkeypatch, patched):
+    def esplode(*a, **k):
+        raise RuntimeError("429 quota finita")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr("her.suggester.stream_reply", esplode)
+    monkeypatch.setenv("GEMINI_API_KEY", "chiave-finta")
+    cfg = load_config("gemini", {"tts": {"voice_id": "fake"}})
+    sess = _run_text_session_with(tmp_path, monkeypatch, cfg, ["una domanda", "e un'altra"])
+    assert sess.turns == 2                                # la puntata è andata avanti
+
+
+def _run_text_session_with(tmp_path, monkeypatch, cfg, lines):
+    it = iter(lines)
+    monkeypatch.setattr("builtins.input", lambda *a: next(it, ""))
+    sess = PodcastSession(cfg, tmp_path / "sx", text_input=True)
+    sess.run()
+    return sess
+
+
+def test_the_director_can_be_switched_off(tmp_path, monkeypatch, patched):
+    def mai(*a, **k):  # pragma: no cover - non deve essere chiamato
+        raise AssertionError("la regia doveva essere spenta")
+
+    monkeypatch.setattr("her.suggester.stream_reply", mai)
+    cfg = load_config("gemini", {"tts": {"voice_id": "fake"}, "suggester": {"enabled": False}})
+    sess = _run_text_session_with(tmp_path, monkeypatch, cfg, ["ciao"])
+    assert not sess.suggester.available
