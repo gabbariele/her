@@ -183,19 +183,26 @@ predefiniti) avvisandoti a ogni passo, invece di far cadere la risposta.
 
 ## La regia
 
-Durante la registrazione un secondo modello, indipendente dall'ospite, legge il
-briefing della puntata e segue la conversazione; a ogni turno può passare al
-conduttore una riga da leggere mentre l'ospite parla. È in `her/suggester.py`:
-thread e client HTTP suoi, così una regia lenta o rotta non tocca la
-conversazione — un errore viene detto una volta e poi solo annotato nel
-registro.
+Durante la registrazione un secondo modello, indipendente dall'ospite, segue la
+conversazione e a ogni turno può passare al conduttore una riga da leggere. Sta
+in `her/suggester.py`: thread e client HTTP suoi, così una regia lenta o rotta
+non tocca la conversazione — un errore viene detto una volta e poi solo annotato
+nel registro.
 
-Il prompt è la parte che conta: massimo quindici parole, qualcosa da *dire* (un
-affondo, una battuta, una domanda precisa) e mai un consiglio generico; se la
-conversazione è uscita dalla scaletta ma funziona, assecondarla invece di
-riportarla indietro; e la possibilità esplicita di tacere rispondendo `NIENTE`,
-perché un suggeritore che parla sempre diventa rumore. Le righe passate finiscono
-in `suggerimenti.md`. Si spegne con `HER_REGIA=off` o `--no-regia`.
+Due scelte fanno la differenza fra utile e fastidioso. **Il momento**: la regia
+parte quando l'LLM ha finito di formulare la risposta, non quando l'ospite ha
+finito di pronunciarla — il testo è completo ma la voce sta ancora parlando, e il
+suggerimento arriva mentre c'è tempo di leggerlo. **L'aggancio**: il prompt le
+chiede di reagire all'ultima risposta dell'ospite — una parola, un'affermazione
+comoda, un buco nel ragionamento — non alla domanda del conduttore, e di dare una
+mossa da fare (la battuta, l'obiezione, la domanda precisa) invece di un consiglio
+generico. Massimo quindici parole, e la possibilità esplicita di tacere
+rispondendo `NIENTE`, perché un suggeritore che parla sempre diventa rumore.
+
+Il briefing della puntata non le viene passato (`suggester.use_briefing: false`):
+il conduttore ce l'ha davanti, e darlo alla regia la porta a riportare il discorso
+sui binari invece di reagire. Le righe passate finiscono in `suggerimenti.md`; si
+spegne con `HER_REGIA=off` o `--no-regia`.
 
 ## Il montaggio
 

@@ -16,12 +16,13 @@ testo. In tutto una decina di minuti, la prima volta.
 6. [Verifica](#6-verifica)
 7. [La prima registrazione](#7-la-prima-registrazione)
 8. [Dove finisce la puntata](#8-dove-finisce-la-puntata)
-9. [Regolare l'attesa e la voce](#9-regolare-lattesa-e-la-voce)
-10. [Personalizza l'ospite](#10-personalizza-lospite)
-11. [La regia: il suggeritore in cuffia](#11-la-regia-il-suggeritore-in-cuffia)
-12. [Riprendere una puntata](#12-riprendere-una-puntata)
-13. [Aggiornare all'ultima versione](#13-aggiornare-allultima-versione)
-14. [Se qualcosa non va](#14-se-qualcosa-non-va)
+9. [Il contesto della puntata](#9-il-contesto-della-puntata)
+10. [Regolare l'ospite (quanto parla, quanto ti interroga)](#10-regolare-lospite-quanto-parla-quanto-ti-interroga)
+11. [Personalizza l'ospite](#11-personalizza-lospite)
+12. [La regia: il suggeritore in cuffia](#12-la-regia-il-suggeritore-in-cuffia)
+13. [Riprendere una puntata](#13-riprendere-una-puntata)
+14. [Aggiornare all'ultima versione](#14-aggiornare-allultima-versione)
+15. [Se qualcosa non va](#15-se-qualcosa-non-va)
 
 ---
 
@@ -105,7 +106,7 @@ usi Gemini: le righe vuote non danno nessun fastidio.
 
 > `HER_PRESET` decide chi è l'ospite e quali modelli usa. `HER_PAUSA` sono i
 > secondi di silenzio da aspettare prima che l'ospite risponda: ci torniamo al
-> [passo 9](#9-regolare-lattesa-e-la-voce).
+> [passo 10](#10-regolare-lospite-quanto-parla-quanto-ti-interroga).
 
 ---
 
@@ -436,7 +437,65 @@ dei comandi:
 
 ---
 
-## 13. Aggiornare all'ultima versione
+## 12. La regia: il suggeritore in cuffia
+
+Durante la registrazione una **seconda AI indipendente** ascolta la
+conversazione e, ogni volta che Nova finisce di rispondere, ti passa **una riga**
+su come rilanciare. Compare mentre lei sta ancora parlando — l'unico momento in
+cui hai il tempo di leggerla:
+
+```
+tu: parliamo del ritorno del vinile
+
+Nova: Il vinile è tornato perché la gente vuole toccare le cose. Poi
+      diciamolo, nessuno lo ascolta davvero: sta lì in salotto a fare scena.
+
+   → regia: falle notare che è la stessa scusa dei libri mai letti
+```
+
+**Il suggerimento nasce da quello che ha appena detto Nova**, non dalla tua
+domanda: si aggancia a una parola, a un'affermazione discutibile, a un dettaglio
+buffo, a un buco nel ragionamento. Se lei ha girato intorno alla domanda, ti dice
+come incalzarla; se ha detto qualcosa di succoso di sfuggita, ti dice di tirarci
+sopra. Sempre con ironia, mai un consiglio da professore tipo «approfondisci».
+
+La scaletta della puntata **non** gliela diamo: quella ce l'hai davanti tu, e
+darla alla regia la porterebbe a riportare il discorso sui binari invece di
+reagire. Se un giorno la vuoi anche lì, nel preset aggiungi `suggester:` e sotto
+`use_briefing: true`.
+
+Altre cose da sapere:
+
+- Quando non ha niente di utile da dire, **tace**. Un suggeritore che parla a
+  ogni turno diventa rumore.
+- Lavora su una **connessione sua**: se è lenta o cade, la registrazione non se
+  ne accorge. Non parla mai ad alta voce e non finisce nel podcast.
+- Usa la stessa chiave Gemini, con un modello leggero: costa praticamente nulla.
+- Tutte le righe restano in `suggerimenti.md`, dentro la cartella della puntata.
+- Per spegnerla, nel `.env`: `HER_REGIA=off`.
+
+---
+
+## 13. Riprendere una puntata
+
+Se una registrazione si interrompe — hai chiuso la finestra, è saltato il
+microfono, ti sei fermato per una pausa — fai **doppio clic su `riprendi.bat`**.
+
+Riprende l'ultima puntata registrata: l'ospite **si ricorda tutto** quello che vi
+eravate detti (la conversazione viene riletta dalla puntata) e il nuovo audio si
+aggiunge in coda a quello di prima, nella stessa cartella. Alla fine avrai un
+unico montato con tutta la puntata, prima e seconda parte insieme.
+
+Due cose da sapere: l'ospite non si ripresenta (niente saluto iniziale), e per
+riprendere una puntata diversa dall'ultima si passa dal Prompt dei comandi:
+
+```
+.venv\Scripts\her.exe record --continua sessions\20260827-234030
+```
+
+---
+
+## 14. Aggiornare all'ultima versione
 
 Fai **doppio clic su `aggiorna.bat`**. Scarica la versione nuova e sostituisce
 solo i file del programma.
@@ -447,7 +506,7 @@ sostituiti: se ne avevi modificato uno, lo ritrovi lì.
 
 ---
 
-## 14. Se qualcosa non va
+## 15. Se qualcosa non va
 
 | Cosa vedi o senti | Cosa fare |
 |---|---|
