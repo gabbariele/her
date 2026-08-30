@@ -180,8 +180,10 @@ class SuggesterConfig:
 
     enabled: bool = True
     provider: str = "gemini"          # openai | gemini
-    model: str = "gemini-3.5-flash-lite"
-    temperature: float = 0.9
+    #: qui il modello leggero non basta: una battuta pronta è un lavoro difficile,
+    #: e sono 120 token per turno, quindi la spesa resta trascurabile
+    model: str = "gemini-3.5-flash"
+    temperature: float = 1.0
     max_output_tokens: int = 120
     thinking: str = "off"
     #: quante parole al massimo può usare per la sua riga

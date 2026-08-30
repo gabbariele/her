@@ -151,6 +151,9 @@ def _load(args: argparse.Namespace) -> Config:
         cfg.suggester.enabled = True
     if getattr(args, "no_regia", False):
         cfg.suggester.enabled = False
+    modello_regia = os.environ.get("HER_REGIA_MODELLO", "").strip()
+    if modello_regia:
+        cfg.suggester.model = modello_regia
     if os.environ.get("HER_INDICAZIONI") and not getattr(args, "indicazioni", None):
         cfg.persona.notes = os.environ["HER_INDICAZIONI"].strip()
     if getattr(args, "indicazioni", None):

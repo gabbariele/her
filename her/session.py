@@ -157,12 +157,13 @@ class PodcastSession:
         self._mic_thread: Optional[threading.Thread] = None
         self._guest_span: list[float] = []
         self.turns = 0
+        self._reply_ready_at = 0.0
         self.suggester = Suggester(
             cfg.suggester,
             briefing=cfg.persona.briefing,
             persona_name=cfg.persona.name,
             out_path=self.dir / "suggerimenti.md",
-            on_suggestion=lambda s: _cue(s.text),
+            on_suggestion=self._show_cue,
             on_error=self._suggester_error,
         )
         self._suggester_warned = False
@@ -282,6 +283,11 @@ class PodcastSession:
                 _crash("turno non completato", exc)
                 self._speaking.clear()
                 self._listening.set()
+
+    def _show_cue(self, suggestion: Suggestion) -> None:
+        attesa = time.monotonic() - self._reply_ready_at if self._reply_ready_at else 0.0
+        _cue(suggestion.text)
+        _log(f"regia in {attesa:.1f}s dopo la risposta", "regia")
 
     def _suggester_error(self, message: str) -> None:
         """La regia è un di più: se non funziona lo dice una volta e sta zitta."""
@@ -446,24 +452,40 @@ class PodcastSession:
         print()
 
     def _produce_reply(self, audio_q: queue.Queue, result: dict) -> None:
-        """LLM -> frasi -> TTS -> coda audio. Gira in un thread a parte."""
+        """LLM -> frasi -> TTS -> coda audio. Gira in un thread a parte.
+
+        Il testo dell'LLM viene scaricato alla massima velocità in un thread
+        suo: se lo si leggesse dentro al ciclo della sintesi, il flusso
+        resterebbe fermo ad aspettare che l'altoparlante finisca la frase
+        precedente, e la regia scatterebbe a fine risposta invece che all'inizio.
+        """
         parts: list[str] = []
+        token_q: queue.Queue = queue.Queue()
 
-        def risposta_pronta() -> None:
-            """L'ospite ha finito di formulare: la regia può reagire.
+        def scarica_testo() -> None:
+            try:
+                for token in llm_provider.stream_reply(
+                    self.system_prompt, self.history, self.cfg.llm, notice=_warn
+                ):
+                    parts.append(token)
+                    token_q.put(token)
+            except Exception as exc:
+                result["error"] = f"{type(exc).__name__}: {exc}"
+            finally:
+                token_q.put(_END)
+                # l'ospite ha finito di formulare: la regia può reagire adesso,
+                # mentre la voce sta ancora pronunciando le prime frasi
+                testo = "".join(parts).strip()
+                if testo:
+                    result["reply_ready"] = self._reply_ready_at = time.monotonic()
+                    self.suggester.consider(
+                        self.history + [{"role": "assistant", "content": testo}]
+                    )
 
-            È il momento giusto: il testo è completo ma la voce sta ancora
-            parlando, quindi il suggerimento arriva mentre hai tempo di leggerlo.
-            """
-            testo = "".join(parts).strip()
-            if testo:
-                self.suggester.consider(self.history + [{"role": "assistant", "content": testo}])
+        threading.Thread(target=scarica_testo, name="llm", daemon=True).start()
 
         try:
-            tokens = llm_provider.stream_reply(
-                self.system_prompt, self.history, self.cfg.llm, notice=_warn
-            )
-            for sentence in iter_sentences(_tee(tokens, parts, on_done=risposta_pronta)):
+            for sentence in iter_sentences(self._drain(token_q)):
                 if self._stop.is_set():
                     break
                 for chunk in tts_provider.stream_speech(
@@ -479,9 +501,10 @@ class PodcastSession:
             result["text"] = "".join(parts)
             audio_q.put(_END)
 
-    def _drain(self, audio_q: queue.Queue) -> Iterator[np.ndarray]:
+    def _drain(self, coda: queue.Queue) -> Iterator:
+        """Svuota una coda fino alla sentinella di fine."""
         while True:
-            item = audio_q.get()
+            item = coda.get()
             if item is _END:
                 return
             yield item
@@ -519,14 +542,6 @@ class PodcastSession:
             )
         self.history.append({"role": "assistant", "content": greeting})
         _say(Ansi.GUEST, self.cfg.persona.name, greeting)
-
-
-def _tee(tokens: Iterator[str], sink: list[str], on_done=None) -> Iterator[str]:
-    for token in tokens:
-        sink.append(token)
-        yield token
-    if on_done is not None:
-        on_done()
 
 
 def load_history(session_dir: str | Path) -> list[dict]:

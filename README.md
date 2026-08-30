@@ -192,12 +192,19 @@ nel registro.
 Due scelte fanno la differenza fra utile e fastidioso. **Il momento**: la regia
 parte quando l'LLM ha finito di formulare la risposta, non quando l'ospite ha
 finito di pronunciarla — il testo è completo ma la voce sta ancora parlando, e il
-suggerimento arriva mentre c'è tempo di leggerlo. **L'aggancio**: il prompt le
+suggerimento arriva mentre c'è tempo di leggerlo. Perché sia davvero così, il
+flusso dell'LLM viene scaricato da un thread dedicato: leggendolo dentro al ciclo
+della sintesi restava fermo ad aspettare l'altoparlante, e la regia scattava a
+risposta ormai finita. **L'aggancio**: il prompt le
 chiede di reagire all'ultima risposta dell'ospite — una parola, un'affermazione
 comoda, un buco nel ragionamento — non alla domanda del conduttore, e di dare una
-mossa da fare (la battuta, l'obiezione, la domanda precisa) invece di un consiglio
-generico. Massimo quindici parole, e la possibilità esplicita di tacere
-rispondendo `NIENTE`, perché un suggeritore che parla sempre diventa rumore.
+mossa da fare invece di un consiglio generico. La regola è stringente: se non sa
+indicare *quale* cosa sta agganciando, non ha una riga e deve tacere. A reggerla
+ci sono quattro esempi di righe buone e cinque di righe da non dare mai
+(«approfondisci», «chiedile un esempio», i riassunti di ciò che si è appena
+sentito, e qualunque frase che andrebbe bene dopo qualsiasi risposta): senza
+esempi negativi un modello scivola lì in due turni. Massimo quindici parole, e la
+possibilità esplicita di tacere rispondendo `NIENTE`.
 
 Il briefing della puntata non le viene passato (`suggester.use_briefing: false`):
 il conduttore ce l'ha davanti, e darlo alla regia la porta a riportare il discorso

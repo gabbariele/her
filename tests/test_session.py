@@ -293,7 +293,8 @@ def test_the_director_reacts_to_what_the_guest_just_said(tmp_path, monkeypatch, 
     assert visti["richiesta"].rstrip().endswith("La riga da passare al conduttore:")
     # la scaletta invece non gliela diamo: se la legge il conduttore
     assert "radio libere" not in visti["system"]
-    assert "ULTIMA risposta dell'ospite" in visti["system"]
+    assert "appena detta dall'ospite" in visti["system"]     # la regola che conta
+    assert "NIENTE" in visti["system"]                      # e il permesso di tacere
     assert visti["modello"] == cfg.suggester.model     # con il suo modello, non quello dell'ospite
     assert "chiedile se ci crede" in (sess.dir / "suggerimenti.md").read_text(encoding="utf-8")
 
@@ -351,3 +352,55 @@ def test_the_director_can_be_switched_off(tmp_path, monkeypatch, patched):
     cfg = load_config("gemini", {"tts": {"voice_id": "fake"}, "suggester": {"enabled": False}})
     sess = _run_text_session_with(tmp_path, monkeypatch, cfg, ["ciao"])
     assert not sess.suggester.available
+
+
+def test_the_director_speaks_while_the_guest_is_still_talking(tmp_path, monkeypatch, patched):
+    """La regia non deve aspettare che finisca la sintesi di tutte le frasi.
+
+    Il testo dell'ospite è pronto molto prima della sua voce: se il flusso
+    dell'LLM viene letto al ritmo dell'altoparlante, il suggerimento arriva a
+    risposta finita e non serve più a niente.
+    """
+    import time
+
+    tempi = {"tts": [], "regia": None}
+
+    def llm_lento(system_prompt, history, cfg, **kw):
+        frasi = [
+            "La prima frase è abbastanza lunga da valere da sola una sintesi. ",
+            "Anche la seconda frase è lunga a sufficienza per essere sintetizzata. ",
+            "E la terza chiude il ragionamento con una certa calma, senza fretta.",
+        ]
+        for pezzo in frasi:
+            yield pezzo
+
+    def tts_lento(text, cfg, sample_rate=SR, **kw):
+        time.sleep(0.25)                       # sintesi + riproduzione, per frase
+        tempi["tts"].append(time.monotonic())
+        yield np.zeros(1200, dtype=np.int16)
+
+    def regia(system_prompt, history, cfg, **kw):
+        tempi["regia"] = time.monotonic()
+        yield "aggancia la terza frase"
+
+    monkeypatch.setattr(session_module.llm_provider, "stream_reply", llm_lento)
+    monkeypatch.setattr(session_module.tts_provider, "stream_speech", tts_lento)
+    monkeypatch.setattr("her.suggester.stream_reply", regia)
+    monkeypatch.setenv("GEMINI_API_KEY", "chiave-finta")
+
+    cfg = load_config("gemini", {"tts": {"voice_id": "fake"}})
+    cfg.persona.greeting = ""                  # niente saluto: contiamo solo le frasi
+    it = iter(["una domanda"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(it, ""))
+    sess = PodcastSession(cfg, tmp_path / "tempi", text_input=True)
+    sess.run()
+
+    for _ in range(100):
+        if tempi["regia"]:
+            break
+        time.sleep(0.02)
+
+    assert tempi["regia"] is not None
+    assert len(tempi["tts"]) == 3
+    # la regia ha lavorato prima che l'ultima frase fosse sintetizzata
+    assert tempi["regia"] < tempi["tts"][-1]

@@ -470,7 +470,10 @@ Altre cose da sapere:
   ogni turno diventa rumore.
 - Lavora su una **connessione sua**: se è lenta o cade, la registrazione non se
   ne accorge. Non parla mai ad alta voce e non finisce nel podcast.
-- Usa la stessa chiave Gemini, con un modello leggero: costa praticamente nulla.
+- Usa la stessa chiave Gemini. Il modello è `gemini-3.5-flash`, non il "lite":
+  avere la battuta pronta è un lavoro difficile e col modello leggero vengono
+  fuori banalità. Sono un centinaio di parole a turno, la spesa resta minima.
+  Per provare il più rapido: `HER_REGIA_MODELLO=gemini-3.5-flash-lite` nel `.env`.
 - Tutte le righe restano in `suggerimenti.md`, dentro la cartella della puntata.
 - Per spegnerla, nel `.env`: `HER_REGIA=off`.
 
@@ -512,6 +515,8 @@ sostituiti: se ne avevi modificato uno, lo ritrovi lì.
 |---|---|
 | L'ospite prende la parola mentre stai ancora pensando | Alza `HER_PAUSA` nel `.env` (per esempio `2.5`). |
 | Risponde con due parole e ti fa subito una domanda | `HER_LUNGHEZZA=lunga` e `HER_DOMANDE=mai` nel `.env`. |
+| I suggerimenti della regia sono banali | Sono vaghi perché il modello è leggero: togli `HER_REGIA_MODELLO` dal `.env` per tornare a quello buono. Se restano banali, spegnila con `HER_REGIA=off`: meglio niente che rumore. |
+| I suggerimenti arrivano troppo tardi | Da questa versione la regia parte appena Nova ha finito di *formulare* la risposta, non di pronunciarla. Se arrivano ancora tardi, la rete è lenta: prova `HER_REGIA_MODELLO=gemini-3.5-flash-lite`. |
 | Manca il file montato (`podcast.wav`) | Quasi sempre è `Ctrl-C`: chiude la finestra prima che il montaggio sia scritto. Chiudi con `Invio`, e per recuperare la puntata fai doppio clic su `monta.bat`. |
 | L'ospite non sa niente della puntata | Non hai preparato il contesto: doppio clic su `contesto.bat` prima di registrare. |
 | Un link non viene letto | PDF, video e pagine che richiedono login non si leggono: copia il testo dentro `contesto.md`. |
