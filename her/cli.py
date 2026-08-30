@@ -11,6 +11,7 @@ from .config import (
     DEFAULT_MODELS,
     ELEVEN_KEYS,
     LENGTH_RULES,
+    PACE_RULES,
     QUESTION_RULES,
     GEMINI_KEYS,
     OPENAI_KEYS,
@@ -32,6 +33,8 @@ def _overrides(args: argparse.Namespace) -> dict:
         out["vad"]["silence_ms"] = int(float(args.pausa) * 1000)
     if getattr(args, "lunghezza", None):
         out["persona"]["length"] = args.lunghezza
+    if getattr(args, "dosaggio", None):
+        out["persona"]["context_pace"] = args.dosaggio
     if getattr(args, "domande", None):
         out["persona"]["questions"] = args.domande
     if getattr(args, "voice", None):
@@ -154,6 +157,8 @@ def _load(args: argparse.Namespace) -> Config:
     modello_regia = os.environ.get("HER_REGIA_MODELLO", "").strip()
     if modello_regia:
         cfg.suggester.model = modello_regia
+    if os.environ.get("HER_CONTESTO") and not getattr(args, "dosaggio", None):
+        cfg.persona.context_pace = os.environ["HER_CONTESTO"].strip().lower()
     if os.environ.get("HER_INDICAZIONI") and not getattr(args, "indicazioni", None):
         cfg.persona.notes = os.environ["HER_INDICAZIONI"].strip()
     if getattr(args, "indicazioni", None):
@@ -192,7 +197,8 @@ def cmd_check(args: argparse.Namespace) -> int:
     print(f"  Audio {cfg.audio.sample_rate} Hz · attesa prima della risposta: "
           f"{cfg.vad.silence_ms / 1000:.1f}s")
     print(f"  Ospite: {cfg.persona.name} · risposte: {cfg.persona.length} "
-          f"· domande al conduttore: {cfg.persona.questions}")
+          f"· domande al conduttore: {cfg.persona.questions} "
+          f"· materiale: {cfg.persona.context_pace}")
     if cfg.suggester.enabled:
         manca = "" if api_key(*(GEMINI_KEYS if cfg.suggester.provider == "gemini" else OPENAI_KEYS)) \
             else "  (MANCA LA CHIAVE)"
@@ -637,6 +643,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="quanto parla l'ospite (default: media)")
         p.add_argument("--domande", choices=list(QUESTION_RULES),
                        help="quanto spesso rilancia con una domanda (default: raramente)")
+        p.add_argument("--dosaggio", choices=list(PACE_RULES),
+                       help="come l'ospite tira fuori il materiale della puntata")
         p.add_argument("--indicazioni", metavar="TESTO",
                        help="indicazione libera sul carattere (es. \"sii più ironica\")")
         if full:

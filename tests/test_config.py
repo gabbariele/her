@@ -181,3 +181,50 @@ def test_length_and_questions_from_the_env(monkeypatch):
 
     Args.lunghezza = "breve"                          # la riga di comando vince sul .env
     assert _load(Args()).persona.length == "breve"
+
+
+def test_the_material_is_doled_out_not_dumped():
+    cfg = load_config("gemini")
+    cfg.persona.briefing = "APPUNTI: nel 2025 gli ascoltatori erano dodici milioni"
+    prompt = cfg.persona.effective_prompt()
+    assert "COME USI IL MATERIALE" in prompt
+    assert "Una cosa per volta" in prompt
+    assert "Non anticipare" in prompt
+    # la regola sta attaccata al materiale, non persa in fondo
+    assert 0 < prompt.index("COME USI IL MATERIALE") - prompt.index("APPUNTI:") < 400
+
+
+def test_without_material_there_is_no_rule_about_it():
+    cfg = load_config("gemini")
+    assert "COME USI IL MATERIALE" not in cfg.persona.effective_prompt()
+
+
+def test_the_three_paces_are_really_different():
+    def prompt(pace):
+        cfg = load_config("gemini", {"persona": {"context_pace": pace}})
+        cfg.persona.briefing = "APPUNTI: x"
+        return cfg.persona.effective_prompt()
+
+    assert "Tieniti per te quasi tutto" in prompt("avaro")
+    assert "Una cosa per volta" in prompt("dosato")
+    assert "senza risparmiarti" in prompt("libero")
+    with pytest.raises(ValueError, match="avaro, dosato, libero"):
+        prompt("spiattella")
+
+
+def test_the_pace_can_be_set_from_the_env(monkeypatch):
+    from her.cli import _load
+
+    class Args:
+        preset = "gemini"
+        context = None
+        pausa = None
+        lunghezza = None
+        domande = None
+        dosaggio = None
+        indicazioni = None
+
+    monkeypatch.setenv("HER_CONTESTO", "avaro")
+    assert _load(Args()).persona.context_pace == "avaro"
+    Args.dosaggio = "libero"                       # la riga di comando vince
+    assert _load(Args()).persona.context_pace == "libero"

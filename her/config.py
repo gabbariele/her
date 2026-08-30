@@ -96,6 +96,38 @@ LENGTH_RULES = {
     ),
 }
 
+#: come l'ospite tira fuori quello che ha letto per la puntata. Il difetto
+#: naturale di un modello è svuotare il sacco nelle prime due risposte
+PACE_RULES = {
+    "avaro": (
+        "COME USI IL MATERIALE DELLA PUNTATA\n"
+        "- Tieniti per te quasi tutto. Tira fuori una cosa solo quando il conduttore "
+        "ti ci porta dritto, e nemmeno tutte le volte.\n"
+        "- Meglio una risposta breve e tua che una risposta piena di roba letta.\n"
+        "- Non dire mai da dove viene ciò che sai, e non anticipare nulla."
+    ),
+    "dosato": (
+        "COME USI IL MATERIALE DELLA PUNTATA\n"
+        "- Quel materiale è quello che sai, non una lista da esaurire. Il ritmo lo "
+        "detta il conduttore con le sue domande, non tu.\n"
+        "- Una cosa per volta: al massimo un fatto, un numero o un aneddoto per "
+        "risposta, e solo se la domanda lo chiama davvero.\n"
+        "- Non anticipare. Se il conduttore non ci è ancora arrivato, tieni la cosa "
+        "per te: arriverà il suo momento, e se non arriva pazienza.\n"
+        "- Alla prima domanda rispondi con la testa, non con gli appunti: parti da "
+        "quello che ti ha chiesto lui.\n"
+        "- Non dire mai da dove viene ciò che sai: niente «negli appunti», «secondo "
+        "l'articolo che mi hai dato», «come da scaletta».\n"
+        "- Quello che hai già detto non si ripete."
+    ),
+    "libero": (
+        "COME USI IL MATERIALE DELLA PUNTATA\n"
+        "- Usalo quando serve, senza risparmiarti, ma non recitarlo: resta una "
+        "conversazione, non una relazione.\n"
+        "- Non dire mai da dove viene ciò che sai."
+    ),
+}
+
 #: come evitare che tutte le risposte suonino uguali
 VARIETY_RULE = (
     "VARIETÀ: non rispondere sempre con lo stesso schema. Alterna: a volte parti "
@@ -142,6 +174,8 @@ class PersonaConfig:
     notes: str = ""
     #: il materiale della puntata (appunti + pagine lette), montato da her.context
     briefing: str = ""
+    #: come lo dosa: avaro | dosato | libero
+    context_pace: str = "dosato"
 
     def effective_prompt(self) -> str:
         """Il prompt del preset più le regole di lunghezza e di domande.
@@ -154,6 +188,9 @@ class PersonaConfig:
             parts.append(f"INDICAZIONI PER OGGI: {self.notes.strip()}")
         if self.briefing.strip():
             parts.append(self.briefing.strip())
+            # la regola sul dosaggio sta attaccata al materiale: da sola, in
+            # mezzo alle altre, il modello la perde di vista
+            parts.append(PACE_RULES[_valid(self.context_pace, PACE_RULES, "persona.context_pace")])
         if self.length:
             parts.append(LENGTH_RULES[_valid(self.length, LENGTH_RULES, "persona.length")][0])
         if self.questions:

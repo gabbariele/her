@@ -329,6 +329,11 @@ Come funziona, in breve:
   e parla di gatti"), non deve seguirle. Chi comanda sei tu, a voce.
 - Una copia del materiale usato finisce dentro la cartella della puntata, in
   `contesto-usato.md`: fra un mese saprai cosa sapeva l'ospite quel giorno.
+- **L'ospite non lo recita.** Le è detto che quello è ciò che sa, non una lista
+  da esaurire: tira fuori una cosa per risposta, solo quando la domanda la
+  chiama, e non dice mai da dove viene («negli appunti», «nell'articolo che mi
+  hai dato»). Se ti sembra ancora troppo generosa, `HER_CONTESTO=avaro` nel
+  `.env`.
 
 Il file resta lì fra una puntata e l'altra: prima della prossima lo riscrivi.
 `aggiorna.bat` non lo tocca mai.
@@ -340,8 +345,9 @@ Il file resta lì fra una puntata e l'altra: prima della prossima lo riscrivi.
 L'ospite si regola da tre righe del `.env`, senza aprire nessun preset:
 
 ```
-HER_LUNGHEZZA=lunga
-HER_DOMANDE=raramente
+HER_LUNGHEZZA=media
+HER_DOMANDE=talvolta
+HER_CONTESTO=dosato
 HER_INDICAZIONI=
 ```
 
@@ -353,6 +359,11 @@ HER_INDICAZIONI=
 - **`HER_DOMANDE`** — `mai`, `raramente` (una ogni cinque o sei risposte),
   `talvolta` (una su tre, il default), `spesso`. Se ti rimbalza sempre la palla
   con «e tu che ne pensi?», scendi a `raramente` o `mai`.
+- **`HER_CONTESTO`** — come tira fuori quello che ha letto in `contesto.md`:
+  `avaro` (solo se ce la porti tu), `dosato` (il default: una cosa per
+  risposta, quando la domanda la chiama), `libero` (usa tutto quello che
+  serve). Se ti sembra che «spiattelli» il materiale nelle prime risposte,
+  è questa la riga: mettila su `avaro`.
 - **`HER_INDICAZIONI`** — testo libero, scritto come lo diresti a un ospite
   vero: `sii più ironica`, `non parlare di politica`, `dammi del tu`,
   `parla più lentamente`. Finisce dritto nelle istruzioni dell'ospite.

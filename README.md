@@ -139,6 +139,14 @@ che fa l'ospite; il risultato entra nelle sue istruzioni e una copia resta in
 (`contesto-cache/`), quindi la seconda registrazione parte subito: `--ricarica`
 la ignora, `--no-link` non scarica niente.
 
+Il materiale non viene solo dato all'ospite, le viene detto **come usarlo**
+(`persona.context_pace`, anche `HER_CONTESTO`): il difetto naturale di un modello
+è svuotare il sacco nelle prime due risposte, quindi la regola di default
+(`dosato`) è una cosa per risposta, solo quando la domanda la chiama, mai
+anticipando e mai citando la provenienza. `avaro` la tiene ancora più stretta,
+`libero` toglie il freno. La regola viene messa subito dopo il materiale nel
+prompt: da sola, in fondo, il modello la perde di vista.
+
 `her contesto` mostra il briefing prima di registrare — vale la pena guardarlo:
 è quello che l'ospite avrà in testa per tutta la puntata.
 

@@ -13,6 +13,8 @@ persona:
   length: media
   # Quanto rimanda la palla a te: mai | raramente | talvolta | spesso
   questions: talvolta
+  # Come tira fuori quello che ha letto in contesto.md: avaro | dosato | libero
+  context_pace: dosato
 
   system_prompt: |
     Sei Nova, ospite di un podcast italiano, in diretta con il conduttore.
