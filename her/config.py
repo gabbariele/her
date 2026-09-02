@@ -37,6 +37,9 @@ class SttConfig:
     #: solo Gemini: off | low | medium | high | auto | numero di token.
     #: per trascrivere non serve ragionare, e ragionare costa tempo e soldi
     thinking: str = "off"
+    #: secondi spesi a ritentare quando il provider è sovraccarico
+    #: (trascrivere può aspettare: senza, il turno è perso)
+    retry_budget_s: float = 8.0
 
 
 @dataclass
@@ -50,6 +53,9 @@ class LlmConfig:
     #: solo Gemini: off | low | medium | high | auto | numero di token.
     #: "off" tiene la battuta pronta prima; alzalo se vuoi risposte più meditate
     thinking: str = "off"
+    #: secondi spesi a ritentare quando il provider è sovraccarico
+    #: (in diretta non si può aspettare troppo: meglio saltare un turno)
+    retry_budget_s: float = 6.0
 
 
 @dataclass
@@ -68,6 +74,9 @@ class TtsConfig:
     style: float = 0.0
     use_speaker_boost: bool = True
     speed: float = 1.0
+    #: secondi spesi a ritentare quando il provider è sovraccarico
+    #: (senza voce il turno non esiste: vale la pena insistere)
+    retry_budget_s: float = 8.0
 
 
 #: quanto deve essere lunga una risposta, e quanti token servono per non
@@ -232,6 +241,9 @@ class SuggesterConfig:
     #: quanti scambi della conversazione guarda
     history_turns: int = 6
     timeout: float = 25.0
+    #: secondi spesi a ritentare quando il provider è sovraccarico
+    #: (la regia è un di più: se non arriva subito, non arriva)
+    retry_budget_s: float = 4.0
 
 
 @dataclass

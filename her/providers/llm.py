@@ -8,12 +8,14 @@ from typing import Callable, Iterator
 import httpx
 
 from ..config import GEMINI_KEYS, OPENAI_KEYS, LlmConfig, api_key
-from . import _gemini
+from . import _gemini, backoff as bo
 
 OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 
 #: quante volte al massimo si riprova cambiando modello o togliendo il thinking
 _MAX_ATTEMPTS = 5
+#: e quanti giri in più concedere ai tentativi per sovraccarico
+_OVERLOAD_ATTEMPTS = 8
 
 
 class LlmError(RuntimeError):
@@ -35,7 +37,7 @@ def stream_reply(
 ) -> Iterator[str]:
     """Genera la risposta dell'ospite. `history` = [{'role': 'user'|'assistant', 'content': str}]."""
     if cfg.provider == "openai":
-        yield from _openai(system_prompt, history, cfg, timeout, client)
+        yield from _openai(system_prompt, history, cfg, timeout, client, notice)
     elif cfg.provider == "gemini":
         yield from _gemini_stream(system_prompt, history, cfg, timeout, client, notice)
     else:
@@ -54,7 +56,7 @@ def _client(client: httpx.Client | None, timeout: float):
         own.close()
 
 
-def _openai(system_prompt, history, cfg: LlmConfig, timeout, client) -> Iterator[str]:
+def _openai(system_prompt, history, cfg: LlmConfig, timeout, client, notice=None) -> Iterator[str]:
     key = api_key(*OPENAI_KEYS)
     if not key:
         raise LlmError("manca OPENAI_API_KEY")
@@ -65,22 +67,31 @@ def _openai(system_prompt, history, cfg: LlmConfig, timeout, client) -> Iterator
         "temperature": cfg.temperature,
         "max_tokens": cfg.max_output_tokens,
     }
+    attesa = bo.Backoff(budget_s=cfg.retry_budget_s)
     with _client(client, timeout) as http:
-        with http.stream(
-            "POST",
-            OPENAI_URL,
-            headers={"Authorization": f"Bearer {key}", "content-type": "application/json"},
-            json=payload,
-            timeout=timeout,
-        ) as resp:
-            if resp.status_code >= 400:
-                raise LlmError(f"OpenAI LLM {resp.status_code}: {_body(resp)[:300]}")
-            for data in _sse(resp):
-                chunk = _json(data)
-                for choice in chunk.get("choices", []) if chunk else []:
-                    piece = (choice.get("delta") or {}).get("content")
-                    if piece:
-                        yield piece
+        while True:
+            with http.stream(
+                "POST",
+                OPENAI_URL,
+                headers={"Authorization": f"Bearer {key}", "content-type": "application/json"},
+                json=payload,
+                timeout=timeout,
+            ) as resp:
+                if resp.status_code >= 400:
+                    # sovraccarico: si aspetta e si riprova, ma solo finché non
+                    # è uscito niente, o il testo verrebbe fuori doppio
+                    if bo.handle(resp.status_code, resp.headers, attesa, "OpenAI", notice):
+                        continue
+                    if resp.status_code in bo.RETRYABLE:
+                        raise LlmError(attesa.message(resp.status_code, "OpenAI"))
+                    raise LlmError(f"OpenAI LLM {resp.status_code}: {_body(resp)[:300]}")
+                for data in _sse(resp):
+                    chunk = _json(data)
+                    for choice in chunk.get("choices", []) if chunk else []:
+                        piece = (choice.get("delta") or {}).get("content")
+                        if piece:
+                            yield piece
+                return
 
 
 def _gemini_payload(system_prompt: str, history: list[dict], cfg: LlmConfig) -> dict:
@@ -111,13 +122,21 @@ def _gemini_stream(system_prompt, history, cfg: LlmConfig, timeout, client, noti
     model = cfg.model
     tried = {_gemini.normalize_model(model)}
 
+    attesa = bo.Backoff(budget_s=cfg.retry_budget_s)
     with _client(client, timeout) as http:
-        for _ in range(_MAX_ATTEMPTS):
+        for _ in range(_MAX_ATTEMPTS + _OVERLOAD_ATTEMPTS):
             emitted = False
             finish = blocked = ""
             url = _gemini.endpoint(model, "streamGenerateContent", sse=True)
             with http.stream("POST", url, headers=headers, json=payload, timeout=timeout) as resp:
                 if resp.status_code >= 400:
+                    # sovraccarico del modello: aspetta e ritenta, finché il
+                    # budget lo consente. Qui non è ancora uscito nessun token,
+                    # quindi ripetere la richiesta non duplica niente
+                    if bo.handle(resp.status_code, resp.headers, attesa, "Gemini", notice):
+                        continue
+                    if resp.status_code in bo.RETRYABLE:
+                        raise LlmError(attesa.message(resp.status_code, "Gemini"))
                     detail = _body(resp)
                     # modello ritirato o parametro non gradito: si riprova
                     # aggiustando la richiesta, invece di far cadere la risposta

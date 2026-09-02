@@ -106,15 +106,16 @@ def test_llm_retries_once_without_thinking_if_rejected():
     assert "thinkingConfig" not in calls[1]["generationConfig"]
 
 
-def test_llm_other_errors_are_not_retried():
+def test_llm_hopeless_errors_are_not_retried():
+    """Una chiave sbagliata non si aggiusta ritentando."""
     calls = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(1)
-        return httpx.Response(429, json={"error": {"message": "quota esaurita"}})
+        return httpx.Response(403, json={"error": {"message": "chiave non valida"}})
 
     with _client(handler) as http:
-        with pytest.raises(LlmError, match="429"):
+        with pytest.raises(LlmError, match="403"):
             list(stream_reply("s", [{"role": "user", "content": "x"}],
                               LlmConfig(provider="gemini"), client=http))
     assert len(calls) == 1

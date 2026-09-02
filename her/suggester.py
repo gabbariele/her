@@ -163,6 +163,7 @@ class Suggester:
             temperature=self.cfg.temperature,
             max_output_tokens=self.cfg.max_output_tokens,
             thinking=self.cfg.thinking,
+            retry_budget_s=self.cfg.retry_budget_s,
         )
         pieces = stream_reply(
             system,

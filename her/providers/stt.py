@@ -10,12 +10,14 @@ import numpy as np
 
 from ..audio.wavio import wav_bytes
 from ..config import GEMINI_KEYS, OPENAI_KEYS, SttConfig, api_key
-from . import _gemini
+from . import _gemini, backoff as bo
 
 OPENAI_URL = "https://api.openai.com/v1/audio/transcriptions"
 
 #: quante volte al massimo si riprova cambiando modello o togliendo il thinking
 _MAX_ATTEMPTS = 5
+#: e quanti giri in più concedere ai tentativi per sovraccarico
+_OVERLOAD_ATTEMPTS = 8
 
 _PROMPT = (
     "Trascrivi letteralmente questo audio, parola per parola. "
@@ -57,13 +59,13 @@ def transcribe(
         return ""
     audio = wav_bytes(samples, sample_rate)
     if cfg.provider == "openai":
-        return _openai(audio, cfg, timeout, client)
+        return _openai(audio, cfg, timeout, client, notice)
     if cfg.provider == "gemini":
         return _gemini_transcribe(audio, cfg, timeout, client, notice)
     raise SttError(f"provider STT sconosciuto: {cfg.provider}")
 
 
-def _openai(audio: bytes, cfg: SttConfig, timeout: float, client) -> str:
+def _openai(audio: bytes, cfg: SttConfig, timeout: float, client, notice=None) -> str:
     key = api_key(*OPENAI_KEYS)
     if not key:
         raise SttError("manca OPENAI_API_KEY")
@@ -72,17 +74,23 @@ def _openai(audio: bytes, cfg: SttConfig, timeout: float, client) -> str:
         data["language"] = cfg.language
     if cfg.hint:
         data["prompt"] = cfg.hint
+    attesa = bo.Backoff(budget_s=cfg.retry_budget_s)
     with _client(client, timeout) as http:
-        resp = http.post(
-            OPENAI_URL,
-            headers={"Authorization": f"Bearer {key}"},
-            data=data,
-            files={"file": ("turn.wav", audio, "audio/wav")},
-            timeout=timeout,
-        )
-    if resp.status_code >= 400:
-        raise SttError(f"OpenAI STT {resp.status_code}: {resp.text[:300]}")
-    return (resp.json().get("text") or "").strip()
+        while True:
+            resp = http.post(
+                OPENAI_URL,
+                headers={"Authorization": f"Bearer {key}"},
+                data=data,
+                files={"file": ("turn.wav", audio, "audio/wav")},
+                timeout=timeout,
+            )
+            if resp.status_code < 400:
+                return (resp.json().get("text") or "").strip()
+            if bo.handle(resp.status_code, resp.headers, attesa, "OpenAI", notice):
+                continue
+            if resp.status_code in bo.RETRYABLE:
+                raise SttError(attesa.message(resp.status_code, "OpenAI"))
+            raise SttError(f"OpenAI STT {resp.status_code}: {resp.text[:300]}")
 
 
 def _gemini_payload(audio: bytes, cfg: SttConfig) -> dict:
@@ -122,9 +130,10 @@ def _gemini_transcribe(audio: bytes, cfg: SttConfig, timeout: float, client, not
     payload = _gemini_payload(audio, cfg)
     model = cfg.model
     tried = {_gemini.normalize_model(model)}
+    attesa = bo.Backoff(budget_s=cfg.retry_budget_s)
 
     with _client(client, timeout) as http:
-        for _ in range(_MAX_ATTEMPTS):
+        for _ in range(_MAX_ATTEMPTS + _OVERLOAD_ATTEMPTS):
             resp = http.post(
                 _gemini.endpoint(model, "generateContent"),
                 headers=headers,
@@ -132,6 +141,11 @@ def _gemini_transcribe(audio: bytes, cfg: SttConfig, timeout: float, client, not
                 timeout=timeout,
             )
             if resp.status_code >= 400:
+                # sovraccarico: aspetta e riprova finché il budget lo consente
+                if bo.handle(resp.status_code, resp.headers, attesa, "Gemini", notice):
+                    continue
+                if resp.status_code in bo.RETRYABLE:
+                    raise SttError(attesa.message(resp.status_code, "Gemini"))
                 detail = resp.text
                 # un modello ritirato o un parametro non gradito si recuperano
                 # da soli: sarebbe assurdo perdere il turno per questo

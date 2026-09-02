@@ -489,7 +489,7 @@ class PodcastSession:
                 if self._stop.is_set():
                     break
                 for chunk in tts_provider.stream_speech(
-                    sentence, self.cfg.tts, self.cfg.audio.sample_rate
+                    sentence, self.cfg.tts, self.cfg.audio.sample_rate, notice=_warn
                 ):
                     if self._stop.is_set():
                         break
@@ -526,7 +526,9 @@ class PodcastSession:
         if self.cfg.session.half_duplex:
             self._listening.clear()
         try:
-            chunks = tts_provider.stream_speech(greeting, self.cfg.tts, self.cfg.audio.sample_rate)
+            chunks = tts_provider.stream_speech(
+                greeting, self.cfg.tts, self.cfg.audio.sample_rate, notice=_warn
+            )
             self.player.play(chunks)
         except Exception as exc:
             _warn(f"saluto non riprodotto: {exc}")

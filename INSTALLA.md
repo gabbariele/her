@@ -539,7 +539,8 @@ sostituiti: se ne avevi modificato uno, lo ritrovi lì.
 | *"Manca: gemini"*, *"Manca: openai"* o *"tts.voice_id"* | Chiavi non salvate: rileggi i passi 4 e 5. Attenzione agli spazi. |
 | *"trascrizione fallita: manca OPENAI_API_KEY"* | Stai usando un preset su OpenAI: metti `HER_PRESET=gemini` nel `.env`. |
 | *"is no longer available"* / *"404"* su Gemini | Google ha ritirato quel modello. Il programma passa da solo a quello suggerito e te lo dice: per non rivedere l'avviso, apri il preset e scrivi il nome nuovo alla riga `model:`. `modelli.bat` elenca quelli disponibili. |
-| *"429"* / *"RESOURCE_EXHAUSTED"* su Gemini | Quota finita: attiva la fatturazione su Google AI Studio o passa a un modello `-lite`. |
+| *"Gemini sovraccarico (503): riprovo fra 1.2s"* | Normale: i server di Google sono presi d'assalto e il programma aspetta e ritenta da solo. Se il turno salta lo stesso, riformula la domanda e vai avanti. |
+| *"429"* / *"RESOURCE_EXHAUSTED"* ripetuto | Quota finita davvero: attiva la fatturazione su Google AI Studio o passa a un modello `-lite`. |
 | L'ospite non risponde e leggi *"risposta vuota"* | Nel preset, sotto `llm:`, metti `thinking: off` o alza `max_output_tokens`. |
 | *"400"* / *"INVALID_ARGUMENT"* su Gemini | Un parametro non gradito da quel modello: il programma riprova da solo semplificando la richiesta e te lo dice. Se fallisce anche così, prova `thinking: auto` nel preset. |
 | Non registra niente quando parli | Permesso microfono negato, o microfono sbagliato: `.venv\Scripts\her.exe devices` mostra quali ci sono. |

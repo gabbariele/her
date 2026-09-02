@@ -372,6 +372,29 @@ her/
 Il `voice_id` si può mettere nel preset oppure, più comodo, in `HER_VOICE_ID`
 dentro il `.env`: il preset ha comunque la precedenza.
 
+## Quando il provider è sovraccarico
+
+`429 RESOURCE_EXHAUSTED` e `503 model is overloaded` non sono errori della
+richiesta: sono il provider che chiede di ripassare più tardi, e capitano anche
+con la chiave giusta e il modello giusto. `her/providers/backoff.py` li tratta
+per quello che sono.
+
+- **Solo gli errori temporanei si ritentano** (408, 429, 5xx). Una chiave
+  sbagliata o un modello inesistente non si aggiustano insistendo, e ritentare
+  lì significa solo bloccarsi più a lungo.
+- **L'attesa cresce e ha un tetto**, con un fattore casuale fra 0,7 e 1,3: senza
+  quello, tutti i client colpiti dallo stesso disservizio ritentano nello stesso
+  istante e lo prolungano.
+- **`Retry-After` ha la precedenza**, quando il provider lo manda: sa lui quando
+  è pronto. Se chiede più tempo di quanto ne resta, si rinuncia subito.
+- **Il budget è per chiamata, non un numero di tentativi** — 6 s per l'ospite,
+  8 s per trascrizione e voce, 4 s per la regia. In diretta si può perdere un
+  turno, non restare piantati col microfono aperto.
+- **Uno stream già iniziato non si ricomincia mai**: la risposta uscirebbe
+  doppia. Si ritenta solo finché non è uscito un token.
+- E quando il budget finisce, l'errore dice cosa è successo in italiano; la
+  sessione salta il turno e continua.
+
 ## Quando qualcosa si rompe a metà registrazione
 
 Una puntata dura mezz'ora e non si può rifare: il programma è scritto perché un

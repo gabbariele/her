@@ -8,6 +8,7 @@ import numpy as np
 
 from ..audio.wavio import pcm_to_array
 from ..config import ELEVEN_KEYS, TtsConfig, api_key
+from . import backoff as bo
 
 BASE = "https://api.elevenlabs.io/v1"
 #: ElevenLabs esporta PCM solo a questi sample rate
@@ -40,6 +41,7 @@ def stream_speech(
     sample_rate: int = 24000,
     timeout: float = 60.0,
     client: httpx.Client | None = None,
+    notice=None,
 ) -> Iterator[np.ndarray]:
     """Sintetizza `text` e restituisce i blocchi audio int16 man mano che arrivano."""
     if not text.strip():
@@ -75,15 +77,25 @@ def stream_speech(
 
     own = client is None
     http = client or httpx.Client(timeout=timeout)
+    attesa = bo.Backoff(budget_s=cfg.retry_budget_s)
     try:
-        for attempt, body in enumerate(attempts):
+        indice = 0
+        while indice < len(attempts):
+            body = attempts[indice]
             tail = b""
             with http.stream(
                 "POST", url, headers=headers, params=params, json=body, timeout=timeout
             ) as resp:
                 if resp.status_code >= 400:
+                    # sovraccarico o limite di richieste: si aspetta e si riprova
+                    # (niente audio è ancora uscito, quindi non si duplica nulla)
+                    if bo.handle(resp.status_code, resp.headers, attesa, "ElevenLabs", notice):
+                        continue
+                    if resp.status_code in bo.RETRYABLE:
+                        raise TtsError(attesa.message(resp.status_code, "ElevenLabs"))
                     detail = resp.read().decode("utf-8", "replace")
-                    if attempt + 1 < len(attempts) and _is_language_error(resp.status_code, detail):
+                    if indice + 1 < len(attempts) and _is_language_error(resp.status_code, detail):
+                        indice += 1
                         continue
                     raise TtsError(f"ElevenLabs TTS {resp.status_code}: {detail[:300]}")
                 for chunk in resp.iter_bytes():
