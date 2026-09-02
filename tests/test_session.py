@@ -38,7 +38,7 @@ class FakePlayer:
         pass
 
 
-def _fake_tts(text, cfg, sample_rate=SR, timeout=60.0):
+def _fake_tts(text, cfg, sample_rate=SR, timeout=60.0, **kw):
     """Mezzo secondo di 'voce' per ogni frase."""
     tone = (np.sin(np.arange(sample_rate // 2) / 10) * 8000).astype(np.int16)
     yield tone[: sample_rate // 4]
