@@ -395,6 +395,25 @@ per quello che sono.
 - E quando il budget finisce, l'errore dice cosa è successo in italiano; la
   sessione salta il turno e continua.
 
+## Il ripiego su un altro provider
+
+Ritentare non basta: se il provider primario è semplicemente lento, aspettarlo
+costa comunque la battuta. Trascrizione, ospite e regia hanno quindi una catena
+di due passi (`fallback_provider` / `fallback_model`, di norma OpenAI
+`gpt-4o-mini` e `gpt-4o-mini-transcribe`).
+
+- **Il primario ha il guinzaglio corto**: se esiste un'alternativa, il suo
+  timeout di lettura *e* il suo budget di ritentativi vengono ridotti a
+  `fallback_after_s` (5 s per l'ospite, 8 s per la trascrizione). Aspettare venti
+  secondi un provider che arranca, avendone un altro pronto, non ha senso.
+- **Si cambia solo prima della prima parola.** A risposta iniziata si tiene
+  quello che c'è: due modelli darebbero due testi diversi attaccati insieme.
+- **Senza la seconda chiave la catena si accorcia da sola**: il ripiego viene
+  saltato, non tentato e fallito. `her check` mostra la catena e dice se il
+  ripiego non è utilizzabile.
+- Il cambio è annunciato a schermo e nel registro: `gemini-3.5-flash non
+  risponde (troppo lento): passo a gpt-4o-mini`.
+
 ## Quando qualcosa si rompe a metà registrazione
 
 Una puntata dura mezz'ora e non si può rifare: il programma è scritto perché un

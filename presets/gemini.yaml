@@ -76,6 +76,11 @@ llm:
   temperature: 0.85
   max_output_tokens: 500
   history_turns: 14
+  # Se Gemini non comincia a rispondere entro 5 secondi, la battuta la scrive
+  # ChatGPT: costa pochissimo e si sente solo che l'ospite ha risposto in tempo.
+  fallback_after_s: 5.0
+  fallback_provider: openai
+  fallback_model: gpt-4o-mini
   thinking: "off"          # per una battuta di 3 frasi il ragionamento è tempo perso.
                            # Sui modelli Gemini 3 diventa il livello minimo:
                            # quei modelli non sanno smettere di pensare del tutto.

@@ -190,8 +190,9 @@ def cmd_check(args: argparse.Namespace) -> int:
         print(f"  {'OK ' if key else '-- '} {name:<12} {('…' + key[-4:]) if key else 'assente'}")
     print("\nConfigurazione attiva:")
     thinking = f", thinking: {cfg.llm.thinking}" if cfg.llm.provider == "gemini" else ""
-    print(f"  STT   {cfg.stt.provider}/{cfg.stt.model} (lingua: {cfg.stt.language})")
-    print(f"  LLM   {cfg.llm.provider}/{cfg.llm.model}{thinking}")
+    print(f"  STT   {cfg.stt.provider}/{cfg.stt.model} (lingua: {cfg.stt.language})"
+          f"{_ripiego(cfg.stt)}")
+    print(f"  LLM   {cfg.llm.provider}/{cfg.llm.model}{thinking}{_ripiego(cfg.llm)}")
     print(f"  TTS   {cfg.tts.provider}/{cfg.tts.model} voce: {cfg.tts.voice_id or 'NON IMPOSTATA'}"
           f" (lingua: {cfg.tts.language or 'automatica'})")
     print(f"  Audio {cfg.audio.sample_rate} Hz · attesa prima della risposta: "
@@ -590,6 +591,18 @@ def _size(n: int) -> str:
             return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
         n /= 1024.0
     return f"{n:.1f} GB"
+
+
+def _ripiego(sezione) -> str:
+    """Come si vede la catena nella verifica: chi interviene se il primo arranca."""
+    provider = getattr(sezione, "fallback_provider", "")
+    modello = getattr(sezione, "fallback_model", "")
+    if not provider or not modello:
+        return ""
+    keys = OPENAI_KEYS if provider == "openai" else GEMINI_KEYS
+    if not api_key(*keys):
+        return f"  [ripiego {modello}: NON disponibile, manca la chiave {provider}]"
+    return f"  → dopo {sezione.fallback_after_s:g}s passa a {modello}"
 
 
 def _print_levels(levels) -> None:

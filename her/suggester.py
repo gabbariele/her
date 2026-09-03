@@ -164,6 +164,9 @@ class Suggester:
             max_output_tokens=self.cfg.max_output_tokens,
             thinking=self.cfg.thinking,
             retry_budget_s=self.cfg.retry_budget_s,
+            fallback_after_s=self.cfg.fallback_after_s,
+            fallback_provider=self.cfg.fallback_provider,
+            fallback_model=self.cfg.fallback_model,
         )
         pieces = stream_reply(
             system,

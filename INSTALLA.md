@@ -99,8 +99,15 @@ GEMINI_API_KEY=AIzaSy-lamiachiavegoogle
 OPENAI_API_KEY=
 ```
 
-`HER_VOICE_ID` lo riempiamo al passo dopo. `OPENAI_API_KEY` lascialo vuoto se
-usi Gemini: le righe vuote non danno nessun fastidio.
+`HER_VOICE_ID` lo riempiamo al passo dopo.
+
+**Su `OPENAI_API_KEY` conviene spendere due parole.** Non serve per registrare —
+con Gemini funziona tutto — ma se ce la metti diventa il **ripiego**: quando i
+server di Google sono lenti o sovraccarichi, la risposta la scrive ChatGPT
+(`gpt-4o-mini`) e la puntata non si ferma. Interviene solo quando serve, quindi
+costa una manciata di centesimi al mese. La chiave si prende su
+[platform.openai.com/api-keys](https://platform.openai.com/api-keys). Se la
+lasci vuota il ripiego viene semplicemente saltato.
 
 **Salva** (Ctrl+S) e chiudi.
 
@@ -149,15 +156,15 @@ Chiavi API:
   OK  ElevenLabs   …c3d4
 
 Configurazione attiva:
-  STT   gemini/gemini-3.5-flash-lite (lingua: it)
-  LLM   gemini/gemini-3.5-flash-lite, thinking: off
+  STT   gemini/gemini-3.5-flash-lite (lingua: it)  → dopo 8s passa a gpt-4o-mini-transcribe
+  LLM   gemini/gemini-3.5-flash-lite, thinking: off  → dopo 5s passa a gpt-4o-mini
   TTS   elevenlabs/eleven_turbo_v2_5 voce: 21m00Tcm... (lingua: it)
   Audio 24000 Hz · attesa prima della risposta: 1.4s
 
 Tutto pronto: `her record`
 ```
 
-`OpenAI assente` va benissimo se usi Gemini. Se invece leggi
+`OpenAI assente` funziona lo stesso, ma senza il ripiego (vedi il passo 4). Se invece leggi
 `Manca: gemini, tts.voice_id`, torna ai passi 4 e 5: qualcosa non è stato
 salvato.
 
@@ -539,7 +546,9 @@ sostituiti: se ne avevi modificato uno, lo ritrovi lì.
 | *"Manca: gemini"*, *"Manca: openai"* o *"tts.voice_id"* | Chiavi non salvate: rileggi i passi 4 e 5. Attenzione agli spazi. |
 | *"trascrizione fallita: manca OPENAI_API_KEY"* | Stai usando un preset su OpenAI: metti `HER_PRESET=gemini` nel `.env`. |
 | *"is no longer available"* / *"404"* su Gemini | Google ha ritirato quel modello. Il programma passa da solo a quello suggerito e te lo dice: per non rivedere l'avviso, apri il preset e scrivi il nome nuovo alla riga `model:`. `modelli.bat` elenca quelli disponibili. |
-| *"Gemini sovraccarico (503): riprovo fra 1.2s"* | Normale: i server di Google sono presi d'assalto e il programma aspetta e ritenta da solo. Se il turno salta lo stesso, riformula la domanda e vai avanti. |
+| *"Gemini sovraccarico (503): riprovo fra 1.2s"* | Normale: i server di Google sono presi d'assalto e il programma aspetta e ritenta da solo. |
+| *"gemini-... non risponde (troppo lento): passo a gpt-4o-mini"* | Sta funzionando il ripiego: la risposta la scrive ChatGPT e la puntata va avanti. Se lo vedi spesso, i server di Google sono in giornata storta. |
+| L'ospite ci mette troppo a rispondere | Metti `OPENAI_API_KEY` nel `.env`: senza, quando Gemini arranca non c'è alternativa e si aspetta. Con la chiave, dopo 5 secondi si cambia provider. |
 | *"429"* / *"RESOURCE_EXHAUSTED"* ripetuto | Quota finita davvero: attiva la fatturazione su Google AI Studio o passa a un modello `-lite`. |
 | L'ospite non risponde e leggi *"risposta vuota"* | Nel preset, sotto `llm:`, metti `thinking: off` o alza `max_output_tokens`. |
 | *"400"* / *"INVALID_ARGUMENT"* su Gemini | Un parametro non gradito da quel modello: il programma riprova da solo semplificando la richiesta e te lo dice. Se fallisce anche così, prova `thinking: auto` nel preset. |

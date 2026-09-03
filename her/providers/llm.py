@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Callable, Iterator
 
 import httpx
@@ -27,6 +28,35 @@ def _notify(notice: Callable[[str], None] | None, message: str) -> None:
         notice(message)
 
 
+@dataclass
+class Attempt:
+    """Un tentativo della catena: chi chiamare, con che modello e con che fretta."""
+
+    provider: str
+    model: str
+    timeout: float
+    retry_budget_s: float
+    label: str
+
+
+def chain(cfg: LlmConfig, timeout: float) -> list[Attempt]:
+    """Il primario e, se configurato e utilizzabile, il ripiego.
+
+    Al primario si dà un guinzaglio corto: se c'è un'alternativa pronta, non ha
+    senso aspettare venti secondi un provider che arranca.
+    """
+    passi = [
+        Attempt(cfg.provider, cfg.model, cfg.fallback_after_s,
+                min(cfg.retry_budget_s, cfg.fallback_after_s), "primario")
+    ]
+    if cfg.fallback_provider and cfg.fallback_model:
+        keys = OPENAI_KEYS if cfg.fallback_provider == "openai" else GEMINI_KEYS
+        if api_key(*keys) and (cfg.fallback_provider, cfg.fallback_model) != (cfg.provider, cfg.model):
+            passi.append(Attempt(cfg.fallback_provider, cfg.fallback_model, timeout,
+                                 cfg.retry_budget_s, "ripiego"))
+    return passi
+
+
 def stream_reply(
     system_prompt: str,
     history: list[dict],
@@ -36,12 +66,38 @@ def stream_reply(
     notice: Callable[[str], None] | None = None,
 ) -> Iterator[str]:
     """Genera la risposta dell'ospite. `history` = [{'role': 'user'|'assistant', 'content': str}]."""
-    if cfg.provider == "openai":
-        yield from _openai(system_prompt, history, cfg, timeout, client, notice)
-    elif cfg.provider == "gemini":
-        yield from _gemini_stream(system_prompt, history, cfg, timeout, client, notice)
-    else:
-        raise LlmError(f"provider LLM sconosciuto: {cfg.provider}")
+    passi = chain(cfg, timeout)
+    for indice, passo in enumerate(passi):
+        emesso = False
+        try:
+            for token in _call(passo, system_prompt, history, cfg, client, notice):
+                emesso = True
+                yield token
+            return
+        except Exception as exc:
+            ultimo = indice + 1 >= len(passi)
+            # a risposta iniziata non si cambia cavallo: uscirebbe il doppio testo
+            if emesso or ultimo:
+                raise
+            prossimo = passi[indice + 1]
+            _notify(notice, f"{passo.model} non risponde ({_motivo(exc)}): "
+                            f"passo a {prossimo.model}")
+
+
+def _motivo(exc: Exception) -> str:
+    if isinstance(exc, httpx.TimeoutException):
+        return "troppo lento"
+    if isinstance(exc, httpx.TransportError):
+        return "rete"
+    return str(exc)[:120]
+
+
+def _call(passo: Attempt, system_prompt, history, cfg, client, notice) -> Iterator[str]:
+    if passo.provider == "openai":
+        return _openai(system_prompt, history, cfg, passo, client, notice)
+    if passo.provider == "gemini":
+        return _gemini_stream(system_prompt, history, cfg, passo, client, notice)
+    raise LlmError(f"provider LLM sconosciuto: {passo.provider}")
 
 
 @contextmanager
@@ -56,26 +112,26 @@ def _client(client: httpx.Client | None, timeout: float):
         own.close()
 
 
-def _openai(system_prompt, history, cfg: LlmConfig, timeout, client, notice=None) -> Iterator[str]:
+def _openai(system_prompt, history, cfg: LlmConfig, passo, client, notice=None) -> Iterator[str]:
     key = api_key(*OPENAI_KEYS)
     if not key:
         raise LlmError("manca OPENAI_API_KEY")
     payload = {
-        "model": cfg.model,
+        "model": passo.model,
         "messages": [{"role": "system", "content": system_prompt}, *history],
         "stream": True,
         "temperature": cfg.temperature,
         "max_tokens": cfg.max_output_tokens,
     }
-    attesa = bo.Backoff(budget_s=cfg.retry_budget_s)
-    with _client(client, timeout) as http:
+    attesa = bo.Backoff(budget_s=passo.retry_budget_s)
+    with _client(client, passo.timeout) as http:
         while True:
             with http.stream(
                 "POST",
                 OPENAI_URL,
                 headers={"Authorization": f"Bearer {key}", "content-type": "application/json"},
                 json=payload,
-                timeout=timeout,
+                timeout=passo.timeout,
             ) as resp:
                 if resp.status_code >= 400:
                     # sovraccarico: si aspetta e si riprova, ma solo finché non
@@ -94,7 +150,7 @@ def _openai(system_prompt, history, cfg: LlmConfig, timeout, client, notice=None
                 return
 
 
-def _gemini_payload(system_prompt: str, history: list[dict], cfg: LlmConfig) -> dict:
+def _gemini_payload(system_prompt: str, history: list[dict], cfg: LlmConfig, model: str = "") -> dict:
     contents = [
         {"role": "model" if m["role"] == "assistant" else "user", "parts": [{"text": m["content"]}]}
         for m in history
@@ -103,7 +159,7 @@ def _gemini_payload(system_prompt: str, history: list[dict], cfg: LlmConfig) -> 
         "temperature": cfg.temperature,
         "maxOutputTokens": cfg.max_output_tokens,
     }
-    thinking = _gemini.thinking_config(cfg.thinking, cfg.model)
+    thinking = _gemini.thinking_config(cfg.thinking, model or cfg.model)
     if thinking is not None:
         generation["thinkingConfig"] = thinking
     return {
@@ -113,7 +169,7 @@ def _gemini_payload(system_prompt: str, history: list[dict], cfg: LlmConfig) -> 
     }
 
 
-def _gemini_stream(system_prompt, history, cfg: LlmConfig, timeout, client, notice) -> Iterator[str]:
+def _gemini_stream(system_prompt, history, cfg: LlmConfig, passo, client, notice) -> Iterator[str]:
     key = api_key(*GEMINI_KEYS)
     if not key:
         raise LlmError("manca GEMINI_API_KEY")
@@ -122,13 +178,14 @@ def _gemini_stream(system_prompt, history, cfg: LlmConfig, timeout, client, noti
     model = cfg.model
     tried = {_gemini.normalize_model(model)}
 
-    attesa = bo.Backoff(budget_s=cfg.retry_budget_s)
-    with _client(client, timeout) as http:
+    attesa = bo.Backoff(budget_s=passo.retry_budget_s)
+    with _client(client, passo.timeout) as http:
         for _ in range(_MAX_ATTEMPTS + _OVERLOAD_ATTEMPTS):
             emitted = False
             finish = blocked = ""
             url = _gemini.endpoint(model, "streamGenerateContent", sse=True)
-            with http.stream("POST", url, headers=headers, json=payload, timeout=timeout) as resp:
+            with http.stream("POST", url, headers=headers, json=payload,
+                             timeout=passo.timeout) as resp:
                 if resp.status_code >= 400:
                     # sovraccarico del modello: aspetta e ritenta, finché il
                     # budget lo consente. Qui non è ancora uscito nessun token,

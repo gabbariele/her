@@ -37,6 +37,10 @@ class SttConfig:
     #: solo Gemini: off | low | medium | high | auto | numero di token.
     #: per trascrivere non serve ragionare, e ragionare costa tempo e soldi
     thinking: str = "off"
+    #: se la trascrizione non arriva entro questi secondi, si passa al ripiego
+    fallback_after_s: float = 8.0
+    fallback_provider: str = "openai"
+    fallback_model: str = "gpt-4o-mini-transcribe"
     #: secondi spesi a ritentare quando il provider è sovraccarico
     #: (trascrivere può aspettare: senza, il turno è perso)
     retry_budget_s: float = 8.0
@@ -53,6 +57,11 @@ class LlmConfig:
     #: solo Gemini: off | low | medium | high | auto | numero di token.
     #: "off" tiene la battuta pronta prima; alzalo se vuoi risposte più meditate
     thinking: str = "off"
+    #: se entro questi secondi non arriva la prima parola, si passa al ripiego
+    fallback_after_s: float = 5.0
+    #: il ripiego: un altro provider, che regge quando il primo arranca
+    fallback_provider: str = "openai"
+    fallback_model: str = "gpt-4o-mini"
     #: secondi spesi a ritentare quando il provider è sovraccarico
     #: (in diretta non si può aspettare troppo: meglio saltare un turno)
     retry_budget_s: float = 6.0
@@ -244,6 +253,10 @@ class SuggesterConfig:
     #: secondi spesi a ritentare quando il provider è sovraccarico
     #: (la regia è un di più: se non arriva subito, non arriva)
     retry_budget_s: float = 4.0
+    #: e se non risponde in tempo, ci pensa l'altro provider
+    fallback_after_s: float = 4.0
+    fallback_provider: str = "openai"
+    fallback_model: str = "gpt-4o-mini"
 
 
 @dataclass
@@ -340,6 +353,8 @@ class Config:
         check_model(self.stt.provider, self.stt.model, "stt")
         check_model(self.llm.provider, self.llm.model, "llm")
         check_model(self.suggester.provider, self.suggester.model, "suggester")
+        check_model(self.stt.fallback_provider, self.stt.fallback_model, "stt (ripiego)")
+        check_model(self.llm.fallback_provider, self.llm.fallback_model, "llm (ripiego)")
         # una risposta lunga con pochi token si tronca a metà frase: il tetto
         # non scende mai sotto quello che la lunghezza richiesta comporta
         self.llm.max_output_tokens = max(self.llm.max_output_tokens, self.persona.min_output_tokens)

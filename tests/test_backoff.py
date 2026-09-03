@@ -133,3 +133,96 @@ def test_a_stream_already_started_is_never_restarted(niente_attese):
         out = "".join(stream_reply("s", [{"role": "user", "content": "x"}],
                                    LlmConfig(provider="gemini"), client=http))
     assert out == "prima parte" and len(tentativi) == 1
+
+
+# -- il ripiego su un altro provider ----------------------------------------
+def test_a_slow_primary_hands_over_to_the_fallback(niente_attese, monkeypatch):
+    """Se Gemini non risponde in tempo, la battuta la scrive ChatGPT."""
+    chiamate = []
+    avvisi = []
+
+    def handler(request):
+        chiamate.append(str(request.url))
+        if "generativelanguage" in str(request.url):
+            raise httpx.ReadTimeout("troppo lento", request=request)
+        return httpx.Response(200, content=(
+            b'data: {"choices":[{"delta":{"content":"eccomi"}}]}\n\n'))
+
+    cfg = LlmConfig(provider="gemini", model="gemini-3.5-flash",
+                    fallback_provider="openai", fallback_model="gpt-4o-mini")
+    with _client(handler) as http:
+        out = "".join(stream_reply("s", [{"role": "user", "content": "x"}], cfg,
+                                   client=http, notice=avvisi.append))
+
+    assert out == "eccomi"
+    assert "generativelanguage" in chiamate[0] and "api.openai.com" in chiamate[-1]
+    assert "troppo lento" in avvisi[-1] and "gpt-4o-mini" in avvisi[-1]
+
+
+def test_an_overloaded_primary_hands_over_too(niente_attese):
+    chiamate = []
+
+    def handler(request):
+        chiamate.append(str(request.url))
+        if "generativelanguage" in str(request.url):
+            return httpx.Response(503, text="model is overloaded")
+        return httpx.Response(200, content=(
+            b'data: {"choices":[{"delta":{"content":"ci penso io"}}]}\n\n'))
+
+    cfg = LlmConfig(provider="gemini", model="gemini-3.5-flash", retry_budget_s=1.0,
+                    fallback_provider="openai", fallback_model="gpt-4o-mini")
+    with _client(handler) as http:
+        out = "".join(stream_reply("s", [{"role": "user", "content": "x"}], cfg, client=http))
+    assert out == "ci penso io"
+    assert any("api.openai.com" in c for c in chiamate)
+
+
+def test_an_answer_already_started_is_never_handed_over(niente_attese):
+    """A metà risposta si tiene quello che c'è: due modelli darebbero due testi."""
+    def handler(request):
+        if "generativelanguage" in str(request.url):
+            return httpx.Response(200, content=_sse("mezza rispo") + b"data: rotto\n\n")
+        raise AssertionError("il ripiego non doveva essere chiamato")
+
+    cfg = LlmConfig(provider="gemini", model="gemini-3.5-flash",
+                    fallback_provider="openai", fallback_model="gpt-4o-mini")
+    with _client(handler) as http:
+        out = "".join(stream_reply("s", [{"role": "user", "content": "x"}], cfg, client=http))
+    assert out == "mezza rispo"
+
+
+def test_without_the_second_key_there_is_no_fallback(monkeypatch, niente_attese):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    cfg = LlmConfig(provider="gemini", model="gemini-3.5-flash")
+    from her.providers.llm import chain
+
+    assert [p.provider for p in chain(cfg, 120)] == ["gemini"]
+    monkeypatch.setenv("OPENAI_API_KEY", "c'è")
+    assert [p.provider for p in chain(cfg, 120)] == ["gemini", "openai"]
+
+
+def test_the_primary_gets_a_short_leash_when_there_is_an_alternative():
+    from her.providers.llm import chain
+
+    cfg = LlmConfig(provider="gemini", model="gemini-3.5-flash",
+                    fallback_after_s=4.0, retry_budget_s=10.0)
+    passi = chain(cfg, 120)
+    assert passi[0].timeout == 4.0 and passi[0].retry_budget_s == 4.0
+    assert passi[-1].timeout == 120                      # al ripiego si dà tempo
+
+
+def test_transcription_hands_over_too(niente_attese):
+    chiamate = []
+
+    def handler(request):
+        chiamate.append(str(request.url))
+        if "generativelanguage" in str(request.url):
+            raise httpx.ReadTimeout("lento", request=request)
+        return httpx.Response(200, json={"text": "trascritto dal ripiego"})
+
+    cfg = SttConfig(provider="gemini", model="gemini-3.5-flash",
+                    fallback_provider="openai", fallback_model="gpt-4o-mini-transcribe")
+    with _client(handler) as http:
+        testo = transcribe(np.ones(100, dtype=np.int16), 24000, cfg, client=http)
+    assert testo == "trascritto dal ripiego"
+    assert len(chiamate) == 2

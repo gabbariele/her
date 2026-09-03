@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Callable
 
 import httpx
@@ -47,6 +48,30 @@ def _client(client: httpx.Client | None, timeout: float):
         own.close()
 
 
+@dataclass
+class Attempt:
+    """Un tentativo della catena: chi trascrive, con che modello, con che fretta."""
+
+    provider: str
+    model: str
+    timeout: float
+    retry_budget_s: float
+
+
+def chain(cfg: SttConfig, timeout: float) -> list[Attempt]:
+    """Il primario, con il guinzaglio corto, e il ripiego se è utilizzabile."""
+    passi = [
+        Attempt(cfg.provider, cfg.model, cfg.fallback_after_s,
+                min(cfg.retry_budget_s, cfg.fallback_after_s))
+    ]
+    if cfg.fallback_provider and cfg.fallback_model:
+        keys = OPENAI_KEYS if cfg.fallback_provider == "openai" else GEMINI_KEYS
+        if api_key(*keys) and (cfg.fallback_provider, cfg.fallback_model) != (cfg.provider, cfg.model):
+            passi.append(Attempt(cfg.fallback_provider, cfg.fallback_model,
+                                 timeout, cfg.retry_budget_s))
+    return passi
+
+
 def transcribe(
     samples: np.ndarray,
     sample_rate: int,
@@ -58,31 +83,49 @@ def transcribe(
     if samples.size == 0:
         return ""
     audio = wav_bytes(samples, sample_rate)
-    if cfg.provider == "openai":
-        return _openai(audio, cfg, timeout, client, notice)
-    if cfg.provider == "gemini":
-        return _gemini_transcribe(audio, cfg, timeout, client, notice)
-    raise SttError(f"provider STT sconosciuto: {cfg.provider}")
+    passi = chain(cfg, timeout)
+    for indice, passo in enumerate(passi):
+        try:
+            if passo.provider == "openai":
+                return _openai(audio, cfg, passo, client, notice)
+            if passo.provider == "gemini":
+                return _gemini_transcribe(audio, cfg, passo, client, notice)
+            raise SttError(f"provider STT sconosciuto: {passo.provider}")
+        except Exception as exc:
+            if indice + 1 >= len(passi):
+                raise
+            prossimo = passi[indice + 1]
+            _notify(notice, f"{passo.model} non trascrive ({_motivo(exc)}): "
+                            f"passo a {prossimo.model}")
+    return ""
 
 
-def _openai(audio: bytes, cfg: SttConfig, timeout: float, client, notice=None) -> str:
+def _motivo(exc: Exception) -> str:
+    if isinstance(exc, httpx.TimeoutException):
+        return "troppo lento"
+    if isinstance(exc, httpx.TransportError):
+        return "rete"
+    return str(exc)[:120]
+
+
+def _openai(audio: bytes, cfg: SttConfig, passo, client, notice=None) -> str:
     key = api_key(*OPENAI_KEYS)
     if not key:
         raise SttError("manca OPENAI_API_KEY")
-    data = {"model": cfg.model, "response_format": "json"}
+    data = {"model": passo.model, "response_format": "json"}
     if cfg.language:
         data["language"] = cfg.language
     if cfg.hint:
         data["prompt"] = cfg.hint
-    attesa = bo.Backoff(budget_s=cfg.retry_budget_s)
-    with _client(client, timeout) as http:
+    attesa = bo.Backoff(budget_s=passo.retry_budget_s)
+    with _client(client, passo.timeout) as http:
         while True:
             resp = http.post(
                 OPENAI_URL,
                 headers={"Authorization": f"Bearer {key}"},
                 data=data,
                 files={"file": ("turn.wav", audio, "audio/wav")},
-                timeout=timeout,
+                timeout=passo.timeout,
             )
             if resp.status_code < 400:
                 return (resp.json().get("text") or "").strip()
@@ -93,14 +136,14 @@ def _openai(audio: bytes, cfg: SttConfig, timeout: float, client, notice=None) -
             raise SttError(f"OpenAI STT {resp.status_code}: {resp.text[:300]}")
 
 
-def _gemini_payload(audio: bytes, cfg: SttConfig) -> dict:
+def _gemini_payload(audio: bytes, cfg: SttConfig, model: str = "") -> dict:
     prompt = _PROMPT
     if cfg.language:
         prompt += f" La lingua parlata è: {cfg.language}."
     if cfg.hint:
         prompt += f" Possono comparire questi termini: {cfg.hint}."
     generation: dict = {"temperature": 0.0}
-    thinking = _gemini.thinking_config(cfg.thinking, cfg.model)
+    thinking = _gemini.thinking_config(cfg.thinking, model or cfg.model)
     if thinking is not None:
         generation["thinkingConfig"] = thinking
     return {
@@ -122,23 +165,23 @@ def _gemini_payload(audio: bytes, cfg: SttConfig) -> dict:
     }
 
 
-def _gemini_transcribe(audio: bytes, cfg: SttConfig, timeout: float, client, notice) -> str:
+def _gemini_transcribe(audio: bytes, cfg: SttConfig, passo, client, notice) -> str:
     key = api_key(*GEMINI_KEYS)
     if not key:
         raise SttError("manca GEMINI_API_KEY")
     headers = {"x-goog-api-key": key, "content-type": "application/json"}
-    payload = _gemini_payload(audio, cfg)
-    model = cfg.model
+    payload = _gemini_payload(audio, cfg, passo.model)
+    model = passo.model
     tried = {_gemini.normalize_model(model)}
-    attesa = bo.Backoff(budget_s=cfg.retry_budget_s)
+    attesa = bo.Backoff(budget_s=passo.retry_budget_s)
 
-    with _client(client, timeout) as http:
+    with _client(client, passo.timeout) as http:
         for _ in range(_MAX_ATTEMPTS + _OVERLOAD_ATTEMPTS):
             resp = http.post(
                 _gemini.endpoint(model, "generateContent"),
                 headers=headers,
                 json=payload,
-                timeout=timeout,
+                timeout=passo.timeout,
             )
             if resp.status_code >= 400:
                 # sovraccarico: aspetta e riprova finché il budget lo consente
