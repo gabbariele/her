@@ -411,3 +411,75 @@ def test_a_mic_too_low_to_fix_is_reported(tmp_path):
 
     normale = render_session(_sessione_sbilanciata(tmp_path / "ok"), RenderConfig(mp3=False))
     assert normale.levels.host_short_db == 0.0
+
+
+def _sessione_con_sigla(tmp_path, testo="Io sono Gabriele, lei e Nova e questo e L'altra intelligenza"):
+    host = np.zeros(30 * SR, dtype=np.int16)
+    guest = np.zeros(30 * SR, dtype=np.int16)
+    host[2 * SR:8 * SR] = _rumore(6, 5000, 31)          # l'introduzione
+    guest[12 * SR:16 * SR] = _rumore(4, 5000, 32)
+    host[20 * SR:23 * SR] = _rumore(3, 5000, 33)
+    write_wav(tmp_path / "host.wav", host, SR)
+    write_wav(tmp_path / "guest.wav", guest, SR)
+    (tmp_path / "events.jsonl").write_text(
+        json.dumps({"speaker": "host", "start": 2, "end": 8, "text": testo}) + "\n"
+        + json.dumps({"speaker": "guest", "start": 12, "end": 16, "text": "prima risposta"}) + "\n"
+        + json.dumps({"speaker": "host", "start": 20, "end": 23, "text": "seconda domanda"}) + "\n",
+        encoding="utf-8")
+    # una sigla di 4 secondi
+    musica = (np.sin(np.arange(4 * SR) * 0.05) * 8000).astype(np.int16)
+    write_wav(tmp_path / "sigla.wav", musica, SR)
+    return tmp_path
+
+
+def test_the_theme_starts_under_the_tail_of_the_line(tmp_path):
+    d = _sessione_con_sigla(tmp_path)
+    cfg = RenderConfig(mp3=False, jingle_file=str(d / "sigla.wav"), jingle_overlap_s=0.8)
+    result = render_session(d, cfg)
+
+    intro = result.segments[0]
+    assert result.jingle_at is not None
+    # entra sotto la coda della frase, non dopo
+    assert intro["start"] < result.jingle_at < intro["end"]
+    # e quello che segue è stato spostato in avanti per farle posto
+    assert result.segments[1]["start"] > result.jingle_at + 4.0
+    assert "sigla" in result.transcript.read_text(encoding="utf-8")
+
+    audio, _ = read_wav(result.wav)
+    quando = int(result.jingle_at * SR)
+    assert np.max(np.abs(audio[quando + SR: quando + 2 * SR])) > 1000     # la musica c'è
+
+
+def test_the_theme_is_matched_however_the_transcript_writes_it(tmp_path):
+    """Accenti e apostrofi cambiano da una trascrizione all'altra."""
+    from her.render import normalize_phrase
+
+    for scritto in ("questo è L'altra intelligenza", "questo e laltra intelligenza",
+                    "QUESTO È L'ALTRA INTELLIGENZA!"):
+        assert "laltra intelligenza" in normalize_phrase(scritto)
+
+
+def test_without_the_phrase_the_theme_is_not_inserted(tmp_path):
+    d = _sessione_con_sigla(tmp_path, testo="oggi parliamo di radio")
+    cfg = RenderConfig(mp3=False, jingle_file=str(d / "sigla.wav"))
+    result = render_session(d, cfg)
+    assert result.jingle_at is None
+    assert any("non compare" in n for n in result.notes)
+
+
+def test_without_the_file_nothing_happens(tmp_path):
+    d = _sessione_con_sigla(tmp_path)
+    (d / "sigla.wav").unlink()
+    result = render_session(d, RenderConfig(mp3=False, jingle_file=str(d / "sigla.wav")))
+    assert result.jingle_at is None and result.notes == []
+
+
+def test_the_closing_music_goes_at_the_end(tmp_path):
+    d = _sessione_con_sigla(tmp_path)
+    cfg = RenderConfig(mp3=False, jingle_file="", outro_file=str(d / "sigla.wav"),
+                       outro_lead_s=0.5)
+    result = render_session(d, cfg)
+    assert result.outro_at is not None
+    assert result.outro_at > result.segments[-1]["end"]
+    audio, _ = read_wav(result.wav)
+    assert audio.size / SR > result.outro_at + 3.5          # c'è spazio per la musica

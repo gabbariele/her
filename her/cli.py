@@ -271,6 +271,62 @@ def cmd_say(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_jingle(args: argparse.Namespace) -> int:
+    """Costruisce la sigla: musica, e sopra la voce dell'ospite che dice il titolo."""
+    import numpy as np
+
+    from .audio.media import load_audio
+    from .audio.wavio import write_wav
+    from .providers.tts import synthesize
+
+    cfg = _load(args)
+    sr = cfg.audio.sample_rate
+    musica = load_audio(args.musica, sr)
+    if args.durata:
+        musica = musica[: int(args.durata * sr)]
+    if musica.size == 0:
+        print("Il file musicale è vuoto.", file=sys.stderr)
+        return 1
+
+    voce = np.zeros(0, dtype=np.float32)
+    if args.voce:
+        if not cfg.tts.voice_id:
+            print("Per la voce serve HER_VOICE_ID nel .env.", file=sys.stderr)
+            return 1
+        print(f"Faccio dire a {cfg.persona.name}: «{args.voce}»")
+        voce = synthesize(args.voce, cfg.tts, sr).astype(np.float32)
+
+    fondo = musica.copy()
+    if voce.size:
+        inizio = int(args.attacco * sr)
+        if inizio + voce.size + int(0.5 * sr) > fondo.size:
+            # la musica non basta a coprire la voce: la si allunga con silenzio
+            fondo = np.concatenate([fondo, np.zeros(inizio + voce.size + int(sr) - fondo.size,
+                                                    dtype=np.float32)])
+        # la musica si abbassa sotto la voce, con rampe morbide: è quello che
+        # in radio si chiama "ducking", e fa la differenza fra sigla e pasticcio
+        giu = 10 ** (args.duck / 20.0)
+        rampa = int(0.3 * sr)
+        inviluppo = np.ones(fondo.size, dtype=np.float32)
+        fine = inizio + voce.size
+        inviluppo[inizio:fine] = giu
+        inviluppo[max(0, inizio - rampa):inizio] = np.linspace(1.0, giu, min(rampa, inizio))
+        coda = min(rampa, inviluppo.size - fine)
+        if coda > 0:
+            inviluppo[fine:fine + coda] = np.linspace(giu, 1.0, coda)
+        fondo *= inviluppo
+        fondo[inizio:fine] += voce
+
+    picco = float(np.max(np.abs(fondo))) or 1.0
+    fondo *= (10 ** (-1.0 / 20.0) * 32767.0) / picco
+    out = Path(args.out or "sigla.wav")
+    write_wav(out, fondo.astype("int16"), sr)
+    print(f"\n{out}  ({fondo.size / sr:.1f}s)")
+    print("Mettila nella cartella del programma con questo nome e verrà inserita da sola,")
+    print(f"sotto la coda della frase «{cfg.render.jingle_after}».")
+    return 0
+
+
 def cmd_record(args: argparse.Namespace) -> int:
     cfg = _load(args)
     if not cfg.tts.voice_id:
@@ -397,6 +453,12 @@ def _render(session_dir: Path, cfg: Config) -> int:
     elif not result.segments:
         print("\n!! Nessun turno e nessun parlato riconoscibile: il «montato» è la")
         print("   registrazione intera, senza tagli. Controlla con: stato.bat")
+    for nota in result.notes:
+        print(f"           {nota}")
+    if result.jingle_at is not None:
+        print(f"Sigla:     entra a {_mmss(result.jingle_at)}")
+    if result.outro_at is not None:
+        print(f"Coda:      da {_mmss(result.outro_at)}")
     _print_levels(result.levels)
     if result.recovered:
         quanti = len(result.recovered)
@@ -721,6 +783,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_mod.add_argument("--provider", choices=["openai", "gemini"], help="default: quello del preset")
     p_mod.add_argument("--search", help="filtra per nome")
     p_mod.set_defaults(func=cmd_models)
+
+    p_sig = sub.add_parser("sigla", help="costruisce la sigla da un file musicale")
+    common(p_sig)
+    p_sig.add_argument("musica", help="file musicale (wav; mp3 e m4a se hai ffmpeg)")
+    p_sig.add_argument("--voce", metavar="FRASE",
+                       help="frase che l'ospite dice sopra la musica")
+    p_sig.add_argument("--attacco", type=float, default=1.5,
+                       help="a che secondo entra la voce (default: 1.5)")
+    p_sig.add_argument("--durata", type=float, help="taglia la musica a questi secondi")
+    p_sig.add_argument("--duck", type=float, default=-9.0,
+                       help="di quanti dB abbassare la musica sotto la voce")
+    p_sig.add_argument("-o", "--out", help="file da scrivere (default: sigla.wav)")
+    p_sig.set_defaults(func=cmd_jingle)
 
     p_ctx = sub.add_parser("contesto", help="prepara e mostra il materiale della puntata")
     common(p_ctx)

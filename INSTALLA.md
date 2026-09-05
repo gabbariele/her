@@ -19,10 +19,11 @@ testo. In tutto una decina di minuti, la prima volta.
 9. [Il contesto della puntata](#9-il-contesto-della-puntata)
 10. [Regolare l'ospite (quanto parla, quanto ti interroga)](#10-regolare-lospite-quanto-parla-quanto-ti-interroga)
 11. [Personalizza l'ospite](#11-personalizza-lospite)
-12. [La regia: il suggeritore in cuffia](#12-la-regia-il-suggeritore-in-cuffia)
-13. [Riprendere una puntata](#13-riprendere-una-puntata)
-14. [Aggiornare all'ultima versione](#14-aggiornare-allultima-versione)
-15. [Se qualcosa non va](#15-se-qualcosa-non-va)
+12. [La sigla](#12-la-sigla)
+13. [La regia: il suggeritore in cuffia](#13-la-regia-il-suggeritore-in-cuffia)
+14. [Riprendere una puntata](#14-riprendere-una-puntata)
+15. [Aggiornare all'ultima versione](#15-aggiornare-allultima-versione)
+16. [Se qualcosa non va](#16-se-qualcosa-non-va)
 
 ---
 
@@ -211,7 +212,7 @@ per ogni puntata (col nome della data e dell'ora). Lì trovi:
 | `podcast.wav` | la stessa cosa, qualità piena |
 | `registrazione-integrale.wav` | tutto quanto in un file solo, coi tempi veri, pause comprese |
 | `contesto-usato.md` | il materiale che l'ospite aveva davanti quel giorno |
-| `transcript.md` | la trascrizione, con i minuti |
+| `transcript.md` | la trascrizione, con i minuti (e i segnalibri della sigla) |
 | `transcript.srt` | i sottotitoli, se ti serve il video |
 | `host.wav` | solo la tua voce |
 | `guest.wav` | solo la voce dell'ospite |
@@ -455,7 +456,43 @@ dei comandi:
 
 ---
 
-## 12. La regia: il suggeritore in cuffia
+## 12. La sigla
+
+Se la puntata ha una sigla, il montaggio la mette al posto giusto da solo:
+parte **sotto la coda** della frase che la annuncia, e tutto quello che segue
+scala in avanti. Sotto la coda, non dopo: è quello che fa suonare una sigla come
+una sigla invece che come un file attaccato in fondo.
+
+**Come si prepara.** Trascina il file musicale sopra **`sigla.bat`** (o fai
+doppio clic e incolla il percorso). Ti chiede se vuoi una frase detta da Nova
+sopra la musica: se la scrivi, la sintetizza con la sua voce e abbassa la musica
+sotto di lei (il "ducking" della radio). Ne esce `sigla.wav` nella cartella del
+programma.
+
+**Come parte.** Il montaggio cerca nel tuo parlato la frase indicata da
+`jingle_after` nel preset, che di serie è `l'altra intelligenza`: appena la
+trova, infila la sigla lì. Il confronto ignora accenti, apostrofi e maiuscole,
+quindi non devi dirla in modo preciso. Se la frase non compare, la sigla non
+viene inserita e il montaggio te lo dice.
+
+Nel preset, sotto `render:`, puoi regolare:
+
+```yaml
+render:
+  jingle_file: sigla.wav
+  jingle_after: "l'altra intelligenza"   # la frase che la fa partire
+  jingle_overlap_s: 0.8                  # quanto entra sotto la tua voce
+  jingle_gain_db: -2.0                   # quanto forte
+  jingle_tail_s: 0.4                     # respiro prima di ripartire
+  outro_file: ""                         # musica di chiusura, se la vuoi
+```
+
+Il file musicale deve essere un WAV; mp3 e m4a funzionano solo se hai `ffmpeg`.
+Nella trascrizione compare un segnalibro `— sigla —` al minuto giusto.
+
+---
+
+## 13. La regia: il suggeritore in cuffia
 
 Durante la registrazione una **seconda AI indipendente** ascolta la
 conversazione e, ogni volta che Nova finisce di rispondere, ti passa **una riga**
@@ -497,7 +534,7 @@ Altre cose da sapere:
 
 ---
 
-## 13. Riprendere una puntata
+## 14. Riprendere una puntata
 
 Se una registrazione si interrompe — hai chiuso la finestra, è saltato il
 microfono, ti sei fermato per una pausa — fai **doppio clic su `riprendi.bat`**.
@@ -516,7 +553,7 @@ riprendere una puntata diversa dall'ultima si passa dal Prompt dei comandi:
 
 ---
 
-## 14. Aggiornare all'ultima versione
+## 15. Aggiornare all'ultima versione
 
 Fai **doppio clic su `aggiorna.bat`**. Scarica la versione nuova e sostituisce
 solo i file del programma.
@@ -527,7 +564,7 @@ sostituiti: se ne avevi modificato uno, lo ritrovi lì.
 
 ---
 
-## 15. Se qualcosa non va
+## 16. Se qualcosa non va
 
 | Cosa vedi o senti | Cosa fare |
 |---|---|

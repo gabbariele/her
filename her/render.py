@@ -8,7 +8,9 @@ interrompi l'ospite) restano sovrapposte.
 from __future__ import annotations
 
 import json
+import re
 import shutil
+import unicodedata
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,6 +18,7 @@ from pathlib import Path
 import numpy as np
 
 from .audio.loudness import compress, loudness_lufs
+from .audio.media import MediaError, load_audio
 from .audio.recorder import read_events
 from .audio.wavio import read_wav, write_wav
 from .config import RenderConfig
@@ -60,6 +63,11 @@ class RenderResult:
     recovered: list[dict] = field(default_factory=list)
     #: timeline ricostruita dall'audio perché events.jsonl mancava
     derived_timeline: bool = False
+    #: dove è entrata la sigla, e dove la coda musicale
+    jingle_at: float | None = None
+    outro_at: float | None = None
+    #: cose da riferire a chi ha lanciato il montaggio
+    notes: list[str] = field(default_factory=list)
 
     @property
     def saved(self) -> float:
@@ -322,6 +330,44 @@ def _slice(track: np.ndarray, start: float, end: float, sr: int) -> np.ndarray:
     return track[i0:i1].astype(np.float32)
 
 
+def normalize_phrase(text: str) -> str:
+    """Confronto indulgente: la trascrizione non scrive due volte uguale.
+
+    Accenti, apostrofi e punteggiatura spariscono, così «questo è L'altra
+    intelligenza» e «questo e laltra intelligenza» sono la stessa cosa.
+    """
+    piatto = unicodedata.normalize("NFKD", text or "")
+    piatto = "".join(c for c in piatto if not unicodedata.combining(c)).lower()
+    piatto = piatto.replace("'", "").replace("’", "")
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", piatto)).strip()
+
+
+def place_jingle(plan: list[dict], cfg: RenderConfig, durata: float) -> float | None:
+    """Infila la sigla dopo la frase che la annuncia, spostando in avanti il resto.
+
+    La sigla entra *sotto* la coda della frase — è quello che fa suonare una
+    sigla come una sigla, invece che come un file attaccato dopo.
+    """
+    if durata <= 0 or not cfg.jingle_after.strip():
+        return None
+    cercata = normalize_phrase(cfg.jingle_after)
+    indice = next(
+        (i for i, item in enumerate(plan)
+         if item["speaker"] == "host" and cercata in normalize_phrase(item.get("text", ""))),
+        None,
+    )
+    if indice is None:
+        return None
+
+    inizio = max(0.0, plan[indice]["end"] - cfg.jingle_overlap_s)
+    riprende = inizio + durata + cfg.jingle_tail_s
+    spostamento = max(0.0, riprende - plan[indice]["end"])
+    for item in plan[indice + 1:]:
+        item["start"] = round(item["start"] + spostamento, 3)
+        item["end"] = round(item["end"] + spostamento, 3)
+    return round(inizio, 3)
+
+
 def pad_events(events: list[dict], cfg: RenderConfig, duration: float) -> list[dict]:
     """Allarga ogni turno di un filo prima e dopo.
 
@@ -435,7 +481,22 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
         events = sorted(events + recovered, key=lambda e: (e["start"], e["end"]))
 
     plan = plan_timeline(pad_events(events, cfg, host.size / sr), cfg)
-    total = max(p["end"] for p in plan) + cfg.tail_s
+
+    note: list[str] = []
+    sigla, sigla_a = _load_extra(cfg.jingle_file, cfg.jingle_gain_db, sr, note, "sigla"), None
+    if sigla is not None:
+        sigla_a = place_jingle(plan, cfg, sigla.size / sr)
+        if sigla_a is None:
+            note.append(f"sigla non inserita: nel parlato non compare «{cfg.jingle_after}»")
+    coda = _load_extra(cfg.outro_file, cfg.outro_gain_db, sr, note, "coda musicale")
+
+    fine_parlato = max(p["end"] for p in plan)
+    coda_a = round(fine_parlato + cfg.outro_lead_s, 3) if coda is not None else None
+    total = fine_parlato + cfg.tail_s
+    if sigla is not None and sigla_a is not None:
+        total = max(total, sigla_a + sigla.size / sr + cfg.tail_s)
+    if coda is not None and coda_a is not None:
+        total = max(total, coda_a + coda.size / sr + cfg.tail_s)
     mixdown = np.zeros(int(round(total * sr)) + 1, dtype=np.float32)
     fade_n = int(sr * cfg.fade_ms / 1000)
 
@@ -448,8 +509,15 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
         end = min(at + audio.size, mixdown.size)
         mixdown[at:end] += audio[: end - at]
 
+    for musica, quando in ((sigla, sigla_a), (coda, coda_a)):
+        if musica is None or quando is None:
+            continue
+        at = int(round(quando * sr))
+        fine = min(at + musica.size, mixdown.size)
+        mixdown[at:fine] += musica[: fine - at]
+
     out = write_wav(session_dir / "podcast.wav", _normalize(mixdown, cfg.peak_dbfs), sr)
-    transcript = _write_transcript(session_dir, plan)
+    transcript = _write_transcript(session_dir, plan, sigla_a, coda_a)
     srt = _write_srt(session_dir, plan)
     return RenderResult(
         wav=out,
@@ -461,6 +529,9 @@ def render_session(session_dir: str | Path, cfg: RenderConfig | None = None) -> 
         raw_duration=raw_duration,
         segments=plan,
         levels=levels,
+        jingle_at=sigla_a,
+        outro_at=coda_a,
+        notes=note,
         unmatched_host_s=unmatched_host_seconds(host, events, sr),
         recovered=recovered,
         derived_timeline=derived,
@@ -504,15 +575,46 @@ def _speaker_label(session_dir: Path, speaker: str) -> str:
     return "Conduttore" if speaker == "host" else "Ospite"
 
 
+def _load_extra(percorso: str, gain_db: float, sr: int, note: list[str], come: str):
+    """Carica sigla o coda musicale, se il file c'è. Un problema non ferma il montaggio."""
+    if not percorso:
+        return None
+    path = Path(percorso)
+    if not path.exists():
+        return None
+    try:
+        audio = load_audio(path, sr) * _db_to_gain(gain_db)
+    except MediaError as exc:
+        note.append(f"{come} non usata: {exc}")
+        return None
+    if audio.size == 0:
+        return None
+    # una musica che entra e esce di netto si sente: mezzo secondo di respiro
+    audio = _fade(audio, int(sr * 0.5))
+    note.append(f"{come}: {path.name}, {audio.size / sr:.1f}s")
+    return audio
+
+
 def _label_text(item: dict) -> str:
     return item["text"] or "(non trascritto)"
 
 
-def _write_transcript(session_dir: Path, plan: list[dict]) -> Path:
+def _write_transcript(session_dir: Path, plan: list[dict],
+                      sigla_a: float | None = None, coda_a: float | None = None) -> Path:
     lines = [f"# Trascrizione - {session_dir.name}", ""]
+    segnalibri = [(t, nome) for t, nome in ((sigla_a, "sigla"), (coda_a, "coda musicale"))
+                  if t is not None]
     for item in plan:
+        for t, nome in list(segnalibri):
+            if t <= item["start"]:
+                lines.append(f"*[{_timecode(t)[:-4]}] — {nome} —*")
+                lines.append("")
+                segnalibri.remove((t, nome))
         who = _speaker_label(session_dir, item["speaker"])
         lines.append(f"**[{_timecode(item['start'])[:-4]}] {who}:** {_label_text(item)}".rstrip())
+        lines.append("")
+    for t, nome in segnalibri:
+        lines.append(f"*[{_timecode(t)[:-4]}] — {nome} —*")
         lines.append("")
     path = session_dir / "transcript.md"
     path.write_text("\n".join(lines), encoding="utf-8")

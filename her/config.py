@@ -328,6 +328,20 @@ class RenderConfig:
     #: ritocco manuale per traccia, applicato dopo il pareggio (dB)
     host_gain_db: float = 0.0
     guest_gain_db: float = 0.0
+    #: la sigla: parte sotto la coda della frase che la annuncia
+    jingle_file: str = "sigla.wav"
+    #: la frase del conduttore che la fa partire (confronto senza accenti né
+    #: apostrofi: basta che il pezzo compaia nel turno trascritto)
+    jingle_after: str = "l'altra intelligenza"
+    #: quanto entra sotto la coda di quella frase
+    jingle_overlap_s: float = 0.8
+    jingle_gain_db: float = -2.0
+    #: respiro fra la fine della sigla e la ripresa del parlato
+    jingle_tail_s: float = 0.4
+    #: musica di chiusura, in coda alla puntata ("" = nessuna)
+    outro_file: str = ""
+    outro_gain_db: float = -2.0
+    outro_lead_s: float = 0.6
     #: esporta anche l'mp3 (richiede ffmpeg nel PATH)
     mp3: bool = True
     mp3_bitrate: str = "192k"

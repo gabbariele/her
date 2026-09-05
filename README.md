@@ -259,6 +259,14 @@ correzione totale resta limitata a `max_match_db`, compreso il recupero dopo la
 compressione, per non amplificare il fruscio di una traccia quasi muta;
 `host_gain_db`/`guest_gain_db` sono il ritocco manuale, applicato per ultimo.
 
+**La sigla entra sotto la coda della frase che la annuncia.** Il montaggio cerca
+`jingle_after` nel parlato del conduttore (confronto senza accenti né apostrofi,
+che la trascrizione non scrive due volte uguale), fa partire la musica
+`jingle_overlap_s` prima della fine di quel turno e sposta in avanti tutto il
+resto. `her sigla musica.wav --voce "L'altra intelligenza"` costruisce il file:
+carica la musica, la fa dire all'ospite con la sua voce e abbassa la base sotto
+di lei con rampe morbide. `outro_file` mette la coda musicale in fondo.
+
 **I tagli lasciano un margine** (`edge_pad_in_s`, `edge_pad_out_s`): l'endpointer
 chiude sul silenzio, e senza margine il montato mangia l'attacco e la coda delle
 parole. Il margine non invade mai il turno precedente della stessa voce.
